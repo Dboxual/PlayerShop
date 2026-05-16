@@ -1,0 +1,21 @@
+name: PlayerShop
+version: '${pluginVersion}'
+main: com.playershop.PlayerShopPlugin
+api-version: '1.21'
+description: Player-owned chest shops
+authors: [Dboxual]
+softdepend: [Vault]
+
+commands:
+  playershop:
+    description: PlayerShop commands
+    usage: /<command> [setprice|remove|reload]
+    permission: playershop.use
+
+permissions:
+  playershop.use:
+    description: Create and manage your own shops
+    default: true
+  playershop.admin:
+    description: Manage all shops and reload config
+    default: op
