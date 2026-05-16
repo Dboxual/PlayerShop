@@ -59,27 +59,29 @@ public class HologramManager {
     // ── Line content ───────────────────────────────────────────────────────────
 
     private List<Component> buildLines(Shop shop) {
+        if (!shop.isConfigured()) {
+            return List.of(
+                Component.text("Shop", NamedTextColor.GOLD)
+                    .decoration(TextDecoration.ITALIC, false)
+                    .decoration(TextDecoration.BOLD, true),
+                Component.text("Place items to sell", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, true)
+            );
+        }
         List<Component> lines = new ArrayList<>();
         lines.add(Component.text(shop.getOwnerName() + "'s Shop", NamedTextColor.GOLD)
             .decoration(TextDecoration.ITALIC, false)
             .decoration(TextDecoration.BOLD, true));
-        if (shop.getSellItem() != null) {
-            String name = friendlyName(shop.getSellItem());
-            lines.add(Component.text("Selling: ", NamedTextColor.GRAY)
-                .append(Component.text(name, NamedTextColor.YELLOW))
-                .decoration(TextDecoration.ITALIC, false));
-            lines.add(Component.text("Price: ", NamedTextColor.GRAY)
-                .append(Component.text("$" + String.format("%.2f", shop.getPrice()), NamedTextColor.GREEN))
-                .decoration(TextDecoration.ITALIC, false));
-            int stock = getStock(shop);
-            NamedTextColor stockColor = stock > 0 ? NamedTextColor.GREEN : NamedTextColor.RED;
-            lines.add(Component.text("Stock: ", NamedTextColor.GRAY)
-                .append(Component.text(String.valueOf(stock), stockColor))
-                .decoration(TextDecoration.ITALIC, false));
-        } else {
-            lines.add(Component.text("Not configured", NamedTextColor.DARK_GRAY)
-                .decoration(TextDecoration.ITALIC, true));
-        }
+        lines.add(Component.text("Selling: ", NamedTextColor.GRAY)
+            .append(Component.text(friendlyName(shop.getSellItem()), NamedTextColor.YELLOW))
+            .decoration(TextDecoration.ITALIC, false));
+        lines.add(Component.text("Price: ", NamedTextColor.GRAY)
+            .append(Component.text("$" + String.format("%.2f", shop.getPrice()) + " / stack", NamedTextColor.GREEN))
+            .decoration(TextDecoration.ITALIC, false));
+        int stock = getStock(shop);
+        lines.add(Component.text("Stock: ", NamedTextColor.GRAY)
+            .append(Component.text(String.valueOf(stock), stock > 0 ? NamedTextColor.GREEN : NamedTextColor.RED))
+            .decoration(TextDecoration.ITALIC, false));
         lines.add(Component.text("Right-click to buy", NamedTextColor.AQUA)
             .decoration(TextDecoration.ITALIC, true));
         return lines;

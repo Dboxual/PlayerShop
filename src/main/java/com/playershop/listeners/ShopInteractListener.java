@@ -54,9 +54,9 @@ public class ShopInteractListener implements Listener {
             if (shopOpt.isPresent()) {
                 Shop shop = shopOpt.get();
                 if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
-                    plugin.getShopGUI().open(player, shop);
+                    plugin.getShopGUI().enterSetupMode(player, shop);
                 } else {
-                    player.sendMessage(Component.text("This chest already belongs to another player's shop.",
+                    player.sendMessage(Component.text("This chest belongs to another player's shop.",
                         NamedTextColor.RED));
                 }
             } else {
@@ -65,9 +65,9 @@ public class ShopInteractListener implements Listener {
         } else if (shopOpt.isPresent()) {
             Shop shop = shopOpt.get();
             if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
-                // Owner/admin → vanilla chest opens normally so they can stock it
+                // Owner/admin → vanilla chest opens normally for restocking
             } else {
-                // Non-owner → buyer GUI (only if shop is configured)
+                // Non-owner → buyer GUI (only if configured)
                 event.setCancelled(true);
                 if (!shop.isConfigured()) {
                     player.sendMessage(Component.text("This shop hasn't been set up yet.", NamedTextColor.GRAY));
@@ -95,8 +95,9 @@ public class ShopInteractListener implements Listener {
             primary, null, 0);
         plugin.getShopManager().addShop(shop);
         plugin.getStorage().saveShop(shop);
-        plugin.getShopGUI().open(player, shop);
-        player.sendMessage(Component.text("Shop created! Set the item and price.", NamedTextColor.GREEN));
+        plugin.getHolograms().createOrUpdate(shop);
+        plugin.getShopGUI().enterSetupMode(player, shop);
+        player.sendMessage(Component.text("Shop created! Add the items you want to sell, then close the chest.", NamedTextColor.GREEN));
     }
 
     private boolean isShovel(ItemStack item) {

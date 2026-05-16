@@ -1,5 +1,24 @@
 # PlayerShop Changelog
 
+## [1.0.4] - 2026-05-16
+
+### Changed (breaking redesign)
+- **Setup flow completely reworked** — shift+right-click with a shovel now opens the physical chest directly. Owner stocks the items, closes the chest, then a price GUI appears automatically. No separate owner GUI or item-picker GUI needed.
+- **Item validation on close** — all items in the chest must be the same type when the owner closes during setup. Mixed items produce a warning and abort setup without changing the shop.
+- **Price is now per stack** — hologram, price GUI title, and buy GUI all display and calculate price as per-stack with proportional per-item breakdown.
+- **Buyer GUI redesigned** — single 27-slot screen: left side decrease buttons (−1 stack / −8 / −1), center item display showing selected amount, right side increase buttons (+1 / +8 / +1 stack), price total row, confirm row. No intermediate stock-view screen.
+- **Holograms** — unconfigured shop shows "Shop / Place items to sell"; configured shop shows owner name / item / price per stack / stock count / "Right-click to buy".
+
+### Added
+- **Purchase sounds** — buyer hears a subtle orb-pickup ping on successful purchase; owner receives a villager-trade sound + message if they are online.
+- **Owner restock flow** — regular right-click on your own shop chest opens it normally for restocking (unchanged from v1.0.2, but now the only owner interaction besides setup).
+
+### Removed
+- Owner GUI (set item / set price / stock / delete slots) — replaced by the new chest-based setup flow.
+- Buyer stock-view intermediate screen — buyer goes directly to the amount-select GUI.
+
+---
+
 ## [1.0.3] - 2026-05-16
 
 ### Added
