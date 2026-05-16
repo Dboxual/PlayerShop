@@ -66,6 +66,7 @@ public class ShopAdminCommand implements CommandExecutor {
             return;
         }
         Shop shop = shopOpt.get();
+        plugin.getHolograms().delete(shop.getId());
         plugin.getShopManager().removeShop(shop.getId());
         plugin.getStorage().deleteShop(shop.getId());
         player.sendMessage(Component.text("Removed shop owned by ", NamedTextColor.GREEN)

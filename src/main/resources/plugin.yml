@@ -4,7 +4,7 @@ main: com.playershop.PlayerShopPlugin
 api-version: '1.21'
 description: Player-owned chest shops
 authors: [Dboxual]
-softdepend: [Vault]
+softdepend: [Vault, DecentHolograms]
 
 commands:
   playershop:

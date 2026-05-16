@@ -1,20 +1,23 @@
 package com.playershop;
 
 import com.playershop.commands.ShopAdminCommand;
+import com.playershop.data.Shop;
 import com.playershop.data.ShopManager;
 import com.playershop.data.ShopStorage;
 import com.playershop.economy.EconomyManager;
 import com.playershop.gui.ShopGUI;
+import com.playershop.hologram.HologramManager;
 import com.playershop.listeners.ShopInteractListener;
 import com.playershop.listeners.ShopProtectListener;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class PlayerShopPlugin extends JavaPlugin {
 
-    private ShopManager  shopManager;
-    private ShopStorage  storage;
+    private ShopManager    shopManager;
+    private ShopStorage    storage;
     private EconomyManager economy;
-    private ShopGUI      shopGUI;
+    private ShopGUI        shopGUI;
+    private HologramManager holograms;
 
     @Override
     public void onEnable() {
@@ -24,6 +27,7 @@ public class PlayerShopPlugin extends JavaPlugin {
         storage     = new ShopStorage(this);
         economy     = new EconomyManager();
         shopGUI     = new ShopGUI(this);
+        holograms   = new HologramManager(this);
 
         if (!economy.setup()) {
             getLogger().warning("Vault/Economy not found — shops will not function until Vault is installed.");
@@ -32,6 +36,11 @@ public class PlayerShopPlugin extends JavaPlugin {
         storage.load();
         storage.loadAll().forEach(shopManager::addShop);
         getLogger().info("Loaded " + shopManager.getAllShops().size() + " shop(s).");
+
+        holograms.reload();
+        for (Shop shop : shopManager.getAllShops()) {
+            holograms.createOrUpdate(shop);
+        }
 
         getServer().getPluginManager().registerEvents(shopGUI,                       this);
         getServer().getPluginManager().registerEvents(new ShopInteractListener(this), this);
@@ -43,22 +52,28 @@ public class PlayerShopPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // Data is saved on every mutation — nothing extra needed.
+        holograms.deleteAll();
     }
 
     public void reload() {
         reloadConfig();
+        holograms.deleteAll();
         shopManager.clear();
         storage.load();
         storage.loadAll().forEach(shopManager::addShop);
         if (!economy.setup()) {
             getLogger().warning("Vault/Economy not found after reload.");
         }
+        holograms.reload();
+        for (Shop shop : shopManager.getAllShops()) {
+            holograms.createOrUpdate(shop);
+        }
         getLogger().info("Reloaded " + shopManager.getAllShops().size() + " shop(s).");
     }
 
-    public ShopManager   getShopManager() { return shopManager; }
-    public ShopStorage   getStorage()     { return storage; }
-    public EconomyManager getEconomy()    { return economy; }
-    public ShopGUI       getShopGUI()     { return shopGUI; }
+    public ShopManager    getShopManager() { return shopManager; }
+    public ShopStorage    getStorage()     { return storage; }
+    public EconomyManager getEconomy()     { return economy; }
+    public ShopGUI        getShopGUI()     { return shopGUI; }
+    public HologramManager getHolograms()  { return holograms; }
 }

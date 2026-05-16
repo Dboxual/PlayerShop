@@ -1,5 +1,22 @@
 # PlayerShop Changelog
 
+## [1.0.3] - 2026-05-16
+
+### Added
+- **Hologram system** — invisible armor stand holograms spawn above every shop chest showing owner name, item, price, stock count, and "Right-click to buy". Toggled via `holograms.enabled` in config.yml. DecentHolograms listed as soft-depend for future swap-in.
+- **Buyer stock view** — right-clicking a shop chest now opens a stock-info GUI first, showing item details, price, and stock. Click the displayed item to proceed to the buy amount screen.
+- **Buy amount GUI** — dedicated screen with Buy 1 / 8 / 16 / 32 / 64 / Max buttons plus a quantity display, Back, and Confirm. Max auto-calculates from balance, chest stock, and inventory space.
+- **Owner item selector** — clicking "Set Item" in the owner GUI shows the actual chest contents; the owner clicks any item to set it as the sell item — no cursor tricks or chat required (Bedrock-compatible).
+
+### Changed
+- Non-owners right-clicking an unconfigured shop now receive a "hasn't been set up yet" message instead of an empty GUI.
+
+### Fixed
+- Holograms are properly cleaned up when a shop is deleted (block break, `/playershop remove`).
+- Hologram stock count updates live after each purchase.
+
+---
+
 ## [1.0.2] - 2026-05-16
 
 ### Fixed

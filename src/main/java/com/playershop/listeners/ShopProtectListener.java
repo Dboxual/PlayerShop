@@ -40,6 +40,7 @@ public class ShopProtectListener implements Listener {
         Shop shop = shopOpt.get();
 
         if (player.hasPermission("playershop.admin") || shop.isOwner(player.getUniqueId())) {
+            plugin.getHolograms().delete(shop.getId());
             plugin.getShopManager().removeShop(shop.getId());
             plugin.getStorage().deleteShop(shop.getId());
             player.sendMessage(Component.text("Shop removed.", NamedTextColor.YELLOW));

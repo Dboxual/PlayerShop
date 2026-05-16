@@ -21,65 +21,118 @@ import java.util.*;
 
 public class ShopGUI implements Listener {
 
-    // ── Layout constants ───────────────────────────────────────────────────────
-    private static final int GUI_SIZE = 27;
-
-    // Owner main GUI  (27-slot, row 1 center four slots)
-    private static final int OWNER_ITEM_SLOT   = 10;
-    private static final int OWNER_PRICE_SLOT  = 12;
-    private static final int OWNER_STOCK_SLOT  = 14;
-    private static final int OWNER_DELETE_SLOT = 16;
-
-    // Buyer GUI
-    private static final int BUYER_INFO_SLOT    = 4;
-    private static final int BUYER_DISPLAY_SLOT = 13;
-
-    // Price-edit GUI  (row 0 = adjustment strip, row 2 = controls)
-    private static final int PE_MINUS_1000 = 0;
-    private static final int PE_MINUS_100  = 1;
-    private static final int PE_MINUS_10   = 2;
-    private static final int PE_MINUS_1    = 3;
-    private static final int PE_DISPLAY    = 4;
-    private static final int PE_PLUS_1     = 5;
-    private static final int PE_PLUS_10    = 6;
-    private static final int PE_PLUS_100   = 7;
-    private static final int PE_PLUS_1000  = 8;
-    private static final int PE_RESET      = 20;
-    private static final int PE_BACK       = 22;
-    private static final int PE_CONFIRM    = 24;
-
     // ── Session types ──────────────────────────────────────────────────────────
-    private sealed interface Session permits MainSession, PriceSession {}
-    private record MainSession(Shop shop, Inventory inventory, boolean ownerMode) implements Session {}
-    // PriceSession is a class (not record) so pending can be mutated without rebuilding
+    private sealed interface Session
+        permits OwnerSession, ItemSelectorSession, PriceSession,
+                BuyerStockSession, BuyAmountSession {}
+
+    /** Owner setup GUI (set item, price, stock, delete). */
+    private record OwnerSession(Shop shop, Inventory inventory) implements Session {}
+
+    /** Shows chest contents so owner can pick the sell item. */
+    private record ItemSelectorSession(Shop shop, Inventory inventory) implements Session {}
+
+    /** Price-edit GUI (delta buttons). */
     private static final class PriceSession implements Session {
-        final Shop shop;
-        final Inventory inventory;
-        double pending;
-        PriceSession(Shop shop, Inventory inv, double initial) {
-            this.shop = shop;
-            this.inventory = inv;
-            this.pending = initial;
+        final Shop shop; final Inventory inventory; double pending;
+        PriceSession(Shop shop, Inventory inv, double init) {
+            this.shop = shop; this.inventory = inv; this.pending = init;
         }
     }
 
-    private final Map<UUID, Session> sessions = new HashMap<>();
+    /** Buyer first screen — shows what the shop sells. */
+    private record BuyerStockSession(Shop shop, Inventory inventory) implements Session {}
+
+    /** Buyer selects how many to buy. */
+    private static final class BuyAmountSession implements Session {
+        final Shop shop; final Inventory inventory;
+        int amount; boolean purchased;
+        BuyAmountSession(Shop shop, Inventory inv, int initial) {
+            this.shop = shop; this.inventory = inv; this.amount = initial;
+        }
+    }
+
+    // ── Owner GUI slots (27-slot) ──────────────────────────────────────────────
+    private static final int OWN_ITEM   = 10;
+    private static final int OWN_PRICE  = 12;
+    private static final int OWN_STOCK  = 14;
+    private static final int OWN_DELETE = 16;
+
+    // ── Price-edit GUI slots (27-slot) ─────────────────────────────────────────
+    private static final int PE_M1000 = 0, PE_M100 = 1, PE_M10 = 2, PE_M1 = 3;
+    private static final int PE_DISP  = 4;
+    private static final int PE_P1    = 5, PE_P10  = 6, PE_P100 = 7, PE_P1000 = 8;
+    private static final int PE_RESET = 20, PE_BACK = 22, PE_CONFIRM = 24;
+
+    // ── Buyer stock GUI slots (27-slot) ────────────────────────────────────────
+    private static final int BS_INFO = 4, BS_ITEM = 13;
+
+    // ── Buy-amount GUI slots (27-slot, sparse — no glass) ─────────────────────
+    // Buy buttons: row 0, slots 0-5
+    private static final int BA_BUY1 = 0, BA_BUY8 = 1, BA_BUY16 = 2,
+                              BA_BUY32 = 3, BA_BUY64 = 4, BA_BUYMAX = 5;
+    private static final int BA_DISP    = 13;
+    private static final int BA_BACK    = 18, BA_CONFIRM = 26;
+
+    private static final int GUI_SIZE = 27;
+
     private final PlayerShopPlugin plugin;
+    private final Map<UUID, Session> sessions = new HashMap<>();
 
     public ShopGUI(PlayerShopPlugin plugin) {
         this.plugin = plugin;
     }
 
-    // ── Public open ────────────────────────────────────────────────────────────
+    // ── Entry points ───────────────────────────────────────────────────────────
 
     public void open(Player player, Shop shop) {
         boolean ownerMode = shop.isOwner(player.getUniqueId())
             || player.hasPermission("playershop.admin");
-        Inventory inv = ownerMode ? buildOwnerInventory(shop) : buildBuyerInventory(shop);
-        // Register BEFORE openInventory so the closing previous GUI's event sees
-        // a different inventory and cannot clobber this new session.
-        sessions.put(player.getUniqueId(), new MainSession(shop, inv, ownerMode));
+        if (ownerMode) openOwner(player, shop);
+        else           openBuyerStock(player, shop);
+    }
+
+    private void openOwner(Player player, Shop shop) {
+        Inventory inv = buildOwnerInventory(shop);
+        sessions.put(player.getUniqueId(), new OwnerSession(shop, inv));
         player.openInventory(inv);
+    }
+
+    private void openItemSelector(Player player, Shop shop) {
+        org.bukkit.block.Block block = shop.getChestLocation().getBlock();
+        if (!(block.getState() instanceof org.bukkit.block.Chest cs)) {
+            player.sendMessage(Component.text("Chest not found.", NamedTextColor.RED));
+            return;
+        }
+        Inventory chestInv = cs.getInventory();
+        int size = chestInv.getSize(); // 27 single, 54 double
+
+        boolean hasItems = false;
+        for (ItemStack s : chestInv.getContents()) {
+            if (s != null && s.getType() != Material.AIR) { hasItems = true; break; }
+        }
+
+        Inventory selectorInv = Bukkit.createInventory(null, size,
+            Component.text("Select Sell Item", NamedTextColor.DARK_GREEN));
+
+        if (hasItems) {
+            for (int i = 0; i < size; i++) {
+                ItemStack src = chestInv.getItem(i);
+                if (src != null) selectorInv.setItem(i, src.clone());
+            }
+        } else {
+            ItemStack placeholder = new ItemStack(Material.BARRIER);
+            ItemMeta m = placeholder.getItemMeta();
+            m.displayName(Component.text("Chest is empty!", NamedTextColor.RED)
+                .decoration(TextDecoration.ITALIC, false));
+            m.lore(List.of(Component.text("Add items to the chest first, then come back.",
+                NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+            placeholder.setItemMeta(m);
+            selectorInv.setItem(size / 2 - 1, placeholder); // rough center
+        }
+
+        sessions.put(player.getUniqueId(), new ItemSelectorSession(shop, selectorInv));
+        player.openInventory(selectorInv);
     }
 
     private void openPriceGUI(Player player, Shop shop) {
@@ -89,25 +142,29 @@ public class ShopGUI implements Listener {
         player.openInventory(inv);
     }
 
+    private void openBuyerStock(Player player, Shop shop) {
+        Inventory inv = buildBuyerStockInventory(shop);
+        sessions.put(player.getUniqueId(), new BuyerStockSession(shop, inv));
+        player.openInventory(inv);
+    }
+
+    private void openBuyAmount(Player player, Shop shop) {
+        Inventory inv = buildBuyAmountInventory(shop, 1);
+        BuyAmountSession bas = new BuyAmountSession(shop, inv, 1);
+        sessions.put(player.getUniqueId(), bas);
+        player.openInventory(inv);
+    }
+
     // ── Inventory builders ─────────────────────────────────────────────────────
 
     private Inventory buildOwnerInventory(Shop shop) {
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE,
             Component.text("Shop Setup", NamedTextColor.DARK_GREEN));
         fill(inv, makeFiller());
-        inv.setItem(OWNER_ITEM_SLOT,   makeItemSlot(shop));
-        inv.setItem(OWNER_PRICE_SLOT,  makePriceButton(shop.getPrice()));
-        inv.setItem(OWNER_STOCK_SLOT,  makeStockItem(shop));
-        inv.setItem(OWNER_DELETE_SLOT, makeDeleteButton());
-        return inv;
-    }
-
-    private Inventory buildBuyerInventory(Shop shop) {
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE,
-            Component.text("Player Shop", NamedTextColor.DARK_AQUA));
-        fill(inv, makeFiller());
-        inv.setItem(BUYER_INFO_SLOT,    makeBuyerInfo(shop));
-        inv.setItem(BUYER_DISPLAY_SLOT, makeBuyerDisplay(shop));
+        inv.setItem(OWN_ITEM,   makeOwnerItemSlot(shop));
+        inv.setItem(OWN_PRICE,  makeOwnerPriceButton(shop.getPrice()));
+        inv.setItem(OWN_STOCK,  makeOwnerStockItem(shop));
+        inv.setItem(OWN_DELETE, makeDeleteButton());
         return inv;
     }
 
@@ -115,25 +172,50 @@ public class ShopGUI implements Listener {
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE,
             Component.text("Set Price", NamedTextColor.GOLD));
         fill(inv, makeFiller());
-        inv.setItem(PE_MINUS_1000, makeDeltaButton(-1000));
-        inv.setItem(PE_MINUS_100,  makeDeltaButton(-100));
-        inv.setItem(PE_MINUS_10,   makeDeltaButton(-10));
-        inv.setItem(PE_MINUS_1,    makeDeltaButton(-1));
-        inv.setItem(PE_DISPLAY,    makePriceDisplay(price));
-        inv.setItem(PE_PLUS_1,     makeDeltaButton(+1));
-        inv.setItem(PE_PLUS_10,    makeDeltaButton(+10));
-        inv.setItem(PE_PLUS_100,   makeDeltaButton(+100));
-        inv.setItem(PE_PLUS_1000,  makeDeltaButton(+1000));
-        inv.setItem(PE_RESET,      makeResetButton());
-        inv.setItem(PE_BACK,       makeBackButton());
-        inv.setItem(PE_CONFIRM,    makeConfirmButton());
+        inv.setItem(PE_M1000, makeDelta(-1000)); inv.setItem(PE_M100, makeDelta(-100));
+        inv.setItem(PE_M10,   makeDelta(-10));   inv.setItem(PE_M1,   makeDelta(-1));
+        inv.setItem(PE_DISP,  makePriceDisplay(price));
+        inv.setItem(PE_P1,    makeDelta(+1));    inv.setItem(PE_P10,  makeDelta(+10));
+        inv.setItem(PE_P100,  makeDelta(+100));  inv.setItem(PE_P1000, makeDelta(+1000));
+        inv.setItem(PE_RESET,   makeResetButton());
+        inv.setItem(PE_BACK,    makeBackButton());
+        inv.setItem(PE_CONFIRM, makeConfirmButton());
         return inv;
     }
 
-    private void refreshOwnerDisplay(Inventory inv, Shop shop) {
-        inv.setItem(OWNER_ITEM_SLOT,  makeItemSlot(shop));
-        inv.setItem(OWNER_PRICE_SLOT, makePriceButton(shop.getPrice()));
-        inv.setItem(OWNER_STOCK_SLOT, makeStockItem(shop));
+    private Inventory buildBuyerStockInventory(Shop shop) {
+        Inventory inv = Bukkit.createInventory(null, GUI_SIZE,
+            Component.text(shop.getOwnerName() + "'s Shop", NamedTextColor.DARK_AQUA));
+        fill(inv, makeFiller());
+        inv.setItem(BS_INFO, makeBuyerInfoItem(shop));
+        inv.setItem(BS_ITEM, makeBuyerStockItem(shop));
+        return inv;
+    }
+
+    private Inventory buildBuyAmountInventory(Shop shop, int amount) {
+        // Sparse — no filler glass (controller-friendly open layout)
+        Inventory inv = Bukkit.createInventory(null, GUI_SIZE,
+            Component.text("Buy – " + friendlyName(shop.getSellItem()), NamedTextColor.GREEN));
+        inv.setItem(BA_BUY1,   makeBuyButton(1));
+        inv.setItem(BA_BUY8,   makeBuyButton(8));
+        inv.setItem(BA_BUY16,  makeBuyButton(16));
+        inv.setItem(BA_BUY32,  makeBuyButton(32));
+        inv.setItem(BA_BUY64,  makeBuyButton(64));
+        inv.setItem(BA_BUYMAX, makeBuyMaxButton());
+        inv.setItem(BA_DISP,   makeBuyDisplay(shop, amount));
+        inv.setItem(BA_BACK,   makeBackButton());
+        inv.setItem(BA_CONFIRM, makeConfirmButton());
+        return inv;
+    }
+
+    private void refreshOwner(Inventory inv, Shop shop) {
+        inv.setItem(OWN_ITEM,  makeOwnerItemSlot(shop));
+        inv.setItem(OWN_PRICE, makeOwnerPriceButton(shop.getPrice()));
+        inv.setItem(OWN_STOCK, makeOwnerStockItem(shop));
+    }
+
+    private void refreshBuyDisplay(BuyAmountSession bas) {
+        bas.inventory.setItem(BA_DISP, makeBuyDisplay(bas.shop, bas.amount));
     }
 
     // ── Events ─────────────────────────────────────────────────────────────────
@@ -146,22 +228,22 @@ public class ShopGUI implements Listener {
         if (!event.getInventory().equals(sessionInventory(session))) return;
 
         if (event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
-            event.setCancelled(true);
-            return;
+            event.setCancelled(true); return;
         }
-
         int raw = event.getRawSlot();
-        if (raw >= GUI_SIZE && event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY) {
-            event.setCancelled(true);
-            return;
+        int topSize = event.getView().getTopInventory().getSize();
+        if (raw >= topSize && event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY) {
+            event.setCancelled(true); return;
         }
-        if (raw >= GUI_SIZE) return;
+        if (raw >= topSize) return;
 
         event.setCancelled(true);
         switch (session) {
-            case MainSession ms   -> { if (ms.ownerMode()) handleOwnerClick(player, ms, raw, event);
-                                       else                handleBuyerClick(player, ms, raw); }
-            case PriceSession ps  -> handlePriceClick(player, ps, raw);
+            case OwnerSession os         -> handleOwnerClick(player, os, raw, event);
+            case ItemSelectorSession is  -> handleSelectorClick(player, is, raw);
+            case PriceSession ps         -> handlePriceClick(player, ps, raw);
+            case BuyerStockSession bss   -> handleBuyerStockClick(player, bss, raw);
+            case BuyAmountSession bas    -> handleBuyAmountClick(player, bas, raw);
         }
     }
 
@@ -171,8 +253,9 @@ public class ShopGUI implements Listener {
         Session session = sessions.get(player.getUniqueId());
         if (session == null) return;
         if (!event.getInventory().equals(sessionInventory(session))) return;
+        int topSize = event.getView().getTopInventory().getSize();
         for (int slot : event.getRawSlots()) {
-            if (slot < GUI_SIZE) { event.setCancelled(true); return; }
+            if (slot < topSize) { event.setCancelled(true); return; }
         }
     }
 
@@ -183,22 +266,25 @@ public class ShopGUI implements Listener {
         Session session = sessions.get(uuid);
         if (session == null) return;
         if (!event.getInventory().equals(sessionInventory(session))) return;
-
         sessions.remove(uuid);
 
         switch (session) {
-            case MainSession ms -> {
-                // Wipe display slots as a dupe safety net
-                if (ms.ownerMode()) event.getInventory().setItem(OWNER_ITEM_SLOT, null);
-                else                event.getInventory().setItem(BUYER_DISPLAY_SLOT, null);
+            case OwnerSession os -> {
+                // Safety wipe — prevent any clone from persisting in memory
+                event.getInventory().setItem(OWN_ITEM, null);
             }
-            case PriceSession ps -> {
-                // Reopen owner GUI on the next tick regardless of how the price GUI was closed
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    if (!player.isOnline()) return;
-                    if (plugin.getShopManager().getShop(ps.shop.getId()).isEmpty()) return;
-                    open(player, ps.shop);
-                });
+            case ItemSelectorSession is -> {
+                // Reopen owner GUI (whether ESC or item was selected)
+                scheduleOpen(player, () -> openOwner(player, is.shop()));
+            }
+            case PriceSession ps -> scheduleOpen(player, () -> openOwner(player, ps.shop));
+            case BuyerStockSession ignored -> { /* plain close */ }
+            case BuyAmountSession bas -> {
+                if (!bas.purchased) {
+                    // Back or ESC: return to buyer stock
+                    scheduleOpen(player, () -> openBuyerStock(player, bas.shop));
+                }
+                // If purchased: already handled, just close
             }
         }
     }
@@ -210,178 +296,248 @@ public class ShopGUI implements Listener {
 
     // ── Click handlers ─────────────────────────────────────────────────────────
 
-    private void handleOwnerClick(Player player, MainSession session, int slot,
+    private void handleOwnerClick(Player player, OwnerSession os, int slot,
                                   InventoryClickEvent event) {
-        Shop shop = session.shop();
         switch (slot) {
-            case OWNER_ITEM_SLOT -> {
-                ItemStack cursor = event.getCursor();
-                if (cursor != null && cursor.getType() != Material.AIR) {
-                    shop.setSellItem(cursor.clone());
-                    plugin.getStorage().saveShop(shop);
-                    refreshOwnerDisplay(session.inventory(), shop);
-                    player.sendMessage(Component.text("Sell item set to ", NamedTextColor.GREEN)
-                        .append(Component.text(cursor.getType().name(), NamedTextColor.YELLOW))
-                        .append(Component.text(".", NamedTextColor.GREEN)));
-                } else {
-                    player.sendMessage(Component.text(
-                        "Hold an item and click here to set it as the sell item.",
-                        NamedTextColor.YELLOW));
-                }
-            }
-            case OWNER_PRICE_SLOT  -> openPriceGUI(player, shop);
-            case OWNER_STOCK_SLOT  -> {
-                refreshOwnerDisplay(session.inventory(), shop);
+            case OWN_ITEM   -> openItemSelector(player, os.shop());
+            case OWN_PRICE  -> openPriceGUI(player, os.shop());
+            case OWN_STOCK  -> {
+                refreshOwner(os.inventory(), os.shop());
                 player.sendMessage(Component.text("Stock refreshed.", NamedTextColor.GRAY));
             }
-            case OWNER_DELETE_SLOT -> {
-                plugin.getShopManager().removeShop(shop.getId());
-                plugin.getStorage().deleteShop(shop.getId());
+            case OWN_DELETE -> {
+                plugin.getShopManager().removeShop(os.shop().getId());
+                plugin.getStorage().deleteShop(os.shop().getId());
+                plugin.getHolograms().delete(os.shop().getId());
                 player.closeInventory();
                 player.sendMessage(Component.text("Shop deleted.", NamedTextColor.RED));
             }
         }
     }
 
+    private void handleSelectorClick(Player player, ItemSelectorSession is, int slot) {
+        ItemStack clicked = is.inventory().getItem(slot);
+        if (clicked == null || clicked.getType() == Material.AIR
+                || clicked.getType() == Material.BARRIER) return;
+
+        ItemStack template = clicked.clone();
+        template.setAmount(1);
+        is.shop().setSellItem(template);
+        plugin.getStorage().saveShop(is.shop());
+        plugin.getHolograms().createOrUpdate(is.shop());
+        player.sendMessage(Component.text("Sell item set to ", NamedTextColor.GREEN)
+            .append(Component.text(friendlyName(template), NamedTextColor.YELLOW))
+            .append(Component.text(".", NamedTextColor.GREEN)));
+        player.closeInventory(); // onInventoryClose reopens owner GUI
+    }
+
     private void handlePriceClick(Player player, PriceSession ps, int slot) {
         switch (slot) {
-            case PE_MINUS_1000 -> applyDelta(ps, -1000);
-            case PE_MINUS_100  -> applyDelta(ps, -100);
-            case PE_MINUS_10   -> applyDelta(ps, -10);
-            case PE_MINUS_1    -> applyDelta(ps, -1);
-            case PE_PLUS_1     -> applyDelta(ps, +1);
-            case PE_PLUS_10    -> applyDelta(ps, +10);
-            case PE_PLUS_100   -> applyDelta(ps, +100);
-            case PE_PLUS_1000  -> applyDelta(ps, +1000);
-            case PE_RESET -> {
-                ps.pending = 0;
-                ps.inventory.setItem(PE_DISPLAY, makePriceDisplay(0));
-            }
-            case PE_BACK    -> player.closeInventory(); // onInventoryClose reopens owner GUI
+            case PE_M1000 -> applyDelta(ps, -1000);
+            case PE_M100  -> applyDelta(ps, -100);
+            case PE_M10   -> applyDelta(ps, -10);
+            case PE_M1    -> applyDelta(ps, -1);
+            case PE_P1    -> applyDelta(ps, +1);
+            case PE_P10   -> applyDelta(ps, +10);
+            case PE_P100  -> applyDelta(ps, +100);
+            case PE_P1000 -> applyDelta(ps, +1000);
+            case PE_RESET -> { ps.pending = 0; ps.inventory.setItem(PE_DISP, makePriceDisplay(0)); }
+            case PE_BACK  -> player.closeInventory();
             case PE_CONFIRM -> {
                 ps.shop.setPrice(ps.pending);
                 plugin.getStorage().saveShop(ps.shop);
+                plugin.getHolograms().createOrUpdate(ps.shop);
                 player.sendMessage(Component.text(
                     "Price set to $" + String.format("%.2f", ps.pending) + ".",
                     NamedTextColor.GREEN));
-                player.closeInventory(); // onInventoryClose reopens owner GUI
+                player.closeInventory();
             }
         }
     }
 
     private void applyDelta(PriceSession ps, double delta) {
         ps.pending = Math.max(0, ps.pending + delta);
-        ps.inventory.setItem(PE_DISPLAY, makePriceDisplay(ps.pending));
+        ps.inventory.setItem(PE_DISP, makePriceDisplay(ps.pending));
     }
 
-    private void handleBuyerClick(Player player, MainSession session, int slot) {
-        if (slot != BUYER_DISPLAY_SLOT) return;
-        Shop shop = session.shop();
-
+    private void handleBuyerStockClick(Player player, BuyerStockSession bss, int slot) {
+        if (slot != BS_ITEM) return;
+        Shop shop = bss.shop();
         if (!shop.isConfigured()) {
             player.sendMessage(Component.text("This shop is not configured yet.", NamedTextColor.RED));
             return;
         }
-        if (!plugin.getEconomy().isAvailable()) {
-            player.sendMessage(Component.text("Economy is unavailable on this server.", NamedTextColor.RED));
+        openBuyAmount(player, shop);
+    }
+
+    private void handleBuyAmountClick(Player player, BuyAmountSession bas, int slot) {
+        Shop shop = bas.shop;
+        switch (slot) {
+            case BA_BUY1   -> setAmount(bas, 1,  player);
+            case BA_BUY8   -> setAmount(bas, 8,  player);
+            case BA_BUY16  -> setAmount(bas, 16, player);
+            case BA_BUY32  -> setAmount(bas, 32, player);
+            case BA_BUY64  -> setAmount(bas, 64, player);
+            case BA_BUYMAX -> {
+                int max = calcMax(player, shop);
+                setAmount(bas, Math.max(1, max), player);
+            }
+            case BA_BACK   -> player.closeInventory(); // onInventoryClose reopens stock view
+            case BA_CONFIRM -> executePurchase(player, bas);
+        }
+    }
+
+    private void setAmount(BuyAmountSession bas, int requested, Player player) {
+        bas.amount = requested;
+        refreshBuyDisplay(bas);
+    }
+
+    private void executePurchase(Player player, BuyAmountSession bas) {
+        Shop shop = bas.shop;
+        int qty = bas.amount;
+
+        if (qty < 1) {
+            player.sendMessage(Component.text("Select how many to buy first.", NamedTextColor.RED));
             return;
         }
-        if (!plugin.getEconomy().hasBalance(player.getUniqueId(), shop.getPrice())) {
+        if (!plugin.getEconomy().isAvailable()) {
+            player.sendMessage(Component.text("Economy is unavailable.", NamedTextColor.RED));
+            return;
+        }
+        double total = shop.getPrice() * qty;
+        if (!plugin.getEconomy().hasBalance(player.getUniqueId(), total)) {
             player.sendMessage(Component.text(
-                "You need $" + String.format("%.2f", shop.getPrice()) + " to buy this.",
+                "Insufficient funds. You need $" + String.format("%.2f", total) + ".",
                 NamedTextColor.RED));
             return;
         }
 
         org.bukkit.block.Block block = shop.getChestLocation().getBlock();
-        if (!(block.getState() instanceof org.bukkit.block.Chest chestState)) {
+        if (!(block.getState() instanceof org.bukkit.block.Chest cs)) {
             player.sendMessage(Component.text("Shop chest not found.", NamedTextColor.RED));
             return;
         }
-        Inventory chestInv = chestState.getInventory();
+        Inventory chestInv = cs.getInventory();
         ItemStack sellItem = shop.getSellItem();
 
-        if (countStock(chestInv, sellItem) < 1) {
-            player.sendMessage(Component.text("This shop is out of stock.", NamedTextColor.RED));
-            return;
-        }
-        if (!hasInventorySpace(player, sellItem)) {
-            player.sendMessage(Component.text("Your inventory is full.", NamedTextColor.RED));
+        int stock = countStock(chestInv, sellItem);
+        if (stock < qty) {
+            player.sendMessage(Component.text(
+                "Not enough stock. Available: " + stock + ".", NamedTextColor.RED));
             return;
         }
 
-        // Atomic: withdraw → remove from chest → give → pay owner
-        if (!plugin.getEconomy().withdraw(player.getUniqueId(), shop.getPrice())) {
+        int invSpace = countInventorySpace(player, sellItem);
+        if (invSpace < qty) {
+            player.sendMessage(Component.text(
+                "Not enough inventory space for " + qty + " items.", NamedTextColor.RED));
+            return;
+        }
+
+        // Atomic: withdraw → remove from chest × qty → give → pay owner
+        if (!plugin.getEconomy().withdraw(player.getUniqueId(), total)) {
             player.sendMessage(Component.text("Payment failed.", NamedTextColor.RED));
             return;
         }
-        if (!removeOneFromChest(chestInv, sellItem)) {
-            plugin.getEconomy().deposit(player.getUniqueId(), shop.getPrice());
+        int removed = 0;
+        while (removed < qty) {
+            if (!removeOneFromChest(chestInv, sellItem)) {
+                // Partial removal — refund remainder
+                plugin.getEconomy().deposit(player.getUniqueId(), (qty - removed) * shop.getPrice());
+                qty = removed;
+                break;
+            }
+            removed++;
+        }
+        if (qty < 1) {
+            plugin.getEconomy().deposit(player.getUniqueId(), total);
             player.sendMessage(Component.text("Could not retrieve item from chest. Refunded.",
                 NamedTextColor.RED));
             return;
         }
 
         ItemStack toGive = sellItem.clone();
-        toGive.setAmount(1);
+        toGive.setAmount(qty);
         player.getInventory().addItem(toGive);
-        plugin.getEconomy().deposit(shop.getOwnerUuid(), shop.getPrice());
+        plugin.getEconomy().deposit(shop.getOwnerUuid(), shop.getPrice() * qty);
+        plugin.getHolograms().createOrUpdate(shop); // refresh stock count in hologram
 
+        bas.purchased = true;
         player.closeInventory();
         player.sendMessage(Component.text("Purchased ", NamedTextColor.GREEN)
-            .append(Component.text(sellItem.getType().name(), NamedTextColor.YELLOW))
-            .append(Component.text(" for $" + String.format("%.2f", shop.getPrice()) + ".",
+            .append(Component.text(qty + "× " + friendlyName(sellItem), NamedTextColor.YELLOW))
+            .append(Component.text(" for $" + String.format("%.2f", shop.getPrice() * qty) + ".",
                 NamedTextColor.GREEN)));
     }
 
     // ── Stock helpers ──────────────────────────────────────────────────────────
 
     private int countStock(Inventory inv, ItemStack template) {
-        int count = 0;
-        for (ItemStack stack : inv.getContents()) {
-            if (stack != null && stack.isSimilar(template)) count += stack.getAmount();
+        int n = 0;
+        for (ItemStack s : inv.getContents()) {
+            if (s != null && s.isSimilar(template)) n += s.getAmount();
         }
-        return count;
+        return n;
     }
 
     private int getChestStock(Shop shop) {
         if (shop.getSellItem() == null) return 0;
-        org.bukkit.block.Block block = shop.getChestLocation().getBlock();
-        if (!(block.getState() instanceof org.bukkit.block.Chest cs)) return 0;
+        org.bukkit.block.Block b = shop.getChestLocation().getBlock();
+        if (!(b.getState() instanceof org.bukkit.block.Chest cs)) return 0;
         return countStock(cs.getInventory(), shop.getSellItem());
     }
 
     private boolean removeOneFromChest(Inventory inv, ItemStack template) {
         for (int i = 0; i < inv.getSize(); i++) {
-            ItemStack stack = inv.getItem(i);
-            if (stack != null && stack.isSimilar(template)) {
-                if (stack.getAmount() > 1) {
-                    stack.setAmount(stack.getAmount() - 1);
-                    inv.setItem(i, stack);
-                } else {
-                    inv.setItem(i, null);
-                }
+            ItemStack s = inv.getItem(i);
+            if (s != null && s.isSimilar(template)) {
+                if (s.getAmount() > 1) { s.setAmount(s.getAmount() - 1); inv.setItem(i, s); }
+                else inv.setItem(i, null);
                 return true;
             }
         }
         return false;
     }
 
-    private boolean hasInventorySpace(Player player, ItemStack template) {
-        for (ItemStack stack : player.getInventory().getContents()) {
-            if (stack == null || stack.getType() == Material.AIR) return true;
-            if (stack.isSimilar(template) && stack.getAmount() < stack.getMaxStackSize()) return true;
+    private int countInventorySpace(Player player, ItemStack template) {
+        int space = 0;
+        for (ItemStack s : player.getInventory().getStorageContents()) {
+            if (s == null || s.getType() == Material.AIR) space += template.getMaxStackSize();
+            else if (s.isSimilar(template)) space += template.getMaxStackSize() - s.getAmount();
         }
-        return false;
+        return space;
+    }
+
+    private int calcMax(Player player, Shop shop) {
+        if (!plugin.getEconomy().isAvailable() || shop.getPrice() <= 0) return 0;
+        int byBalance  = (int) Math.floor(
+            plugin.getEconomy().getBalance(player.getUniqueId()) / shop.getPrice());
+        int byStock    = getChestStock(shop);
+        int byInvSpace = countInventorySpace(player, shop.getSellItem());
+        return Math.max(0, Math.min(byBalance, Math.min(byStock, byInvSpace)));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private Inventory sessionInventory(Session session) {
-        return switch (session) {
-            case MainSession ms  -> ms.inventory();
-            case PriceSession ps -> ps.inventory;
+    private void scheduleOpen(Player player, Runnable action) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) action.run();
+        });
+    }
+
+    private Inventory sessionInventory(Session s) {
+        return switch (s) {
+            case OwnerSession os        -> os.inventory();
+            case ItemSelectorSession is -> is.inventory();
+            case PriceSession ps        -> ps.inventory;
+            case BuyerStockSession bss  -> bss.inventory();
+            case BuyAmountSession bas   -> bas.inventory;
         };
+    }
+
+    private String friendlyName(ItemStack item) {
+        if (item == null) return "???";
+        return item.getType().name().replace('_', ' ');
     }
 
     // ── Item factories ─────────────────────────────────────────────────────────
@@ -391,174 +547,215 @@ public class ShopGUI implements Listener {
     }
 
     private ItemStack makeFiller() {
-        ItemStack item = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text(" ").decoration(TextDecoration.ITALIC, false));
-        item.setItemMeta(meta);
-        return item;
+        ItemStack it = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(Component.text(" ").decoration(TextDecoration.ITALIC, false));
+        it.setItemMeta(m);
+        return it;
     }
 
-    // Owner GUI
-    private ItemStack makeItemSlot(Shop shop) {
+    // Owner GUI ----------------------------------------------------------------
+    private ItemStack makeOwnerItemSlot(Shop shop) {
         if (shop.getSellItem() == null) {
-            ItemStack item = new ItemStack(Material.LIME_STAINED_GLASS_PANE);
-            ItemMeta meta = item.getItemMeta();
-            meta.displayName(colored("Set Sell Item", NamedTextColor.GREEN));
-            meta.lore(List.of(plain("Hold an item and click to set it")));
-            item.setItemMeta(meta);
-            return item;
+            ItemStack it = new ItemStack(Material.LIME_STAINED_GLASS_PANE);
+            ItemMeta m = it.getItemMeta();
+            m.displayName(colored("Set Sell Item", NamedTextColor.GREEN));
+            m.lore(List.of(plain("Click to choose from chest contents")));
+            it.setItemMeta(m);
+            return it;
         }
         ItemStack display = shop.getSellItem().clone();
-        ItemMeta meta = display.hasItemMeta()
-            ? display.getItemMeta()
-            : Bukkit.getItemFactory().getItemMeta(display.getType());
-        List<Component> lore = meta.lore() != null ? new ArrayList<>(meta.lore()) : new ArrayList<>();
+        ItemMeta m = display.hasItemMeta()
+            ? display.getItemMeta() : Bukkit.getItemFactory().getItemMeta(display.getType());
+        List<Component> lore = m.lore() != null ? new ArrayList<>(m.lore()) : new ArrayList<>();
         lore.add(Component.empty());
         lore.add(colored("Sell Item", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true));
-        lore.add(plain("Hold a new item and click to change"));
-        meta.lore(lore);
-        display.setItemMeta(meta);
+        lore.add(plain("Click to change (opens chest picker)"));
+        m.lore(lore);
+        display.setItemMeta(m);
         return display;
     }
 
-    private ItemStack makePriceButton(double price) {
-        ItemStack item = new ItemStack(Material.GOLD_NUGGET);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(colored("Set Price", NamedTextColor.GOLD));
-        meta.lore(List.of(
-            plain("Current: ").append(colored("$" + String.format("%.2f", price), NamedTextColor.GREEN)),
-            Component.empty(),
-            plain("Click to adjust")
+    private ItemStack makeOwnerPriceButton(double price) {
+        ItemStack it = new ItemStack(Material.GOLD_NUGGET);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Set Price", NamedTextColor.GOLD));
+        m.lore(List.of(
+            plain("Current: ").append(colored("$" + fmt(price), NamedTextColor.GREEN)),
+            Component.empty(), plain("Click to adjust")
         ));
-        item.setItemMeta(meta);
-        return item;
+        it.setItemMeta(m);
+        return it;
     }
 
-    private ItemStack makeStockItem(Shop shop) {
+    private ItemStack makeOwnerStockItem(Shop shop) {
         int stock = getChestStock(shop);
-        ItemStack item = new ItemStack(Material.PAPER);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(colored("Stock", NamedTextColor.AQUA));
-        meta.lore(List.of(
-            plain("In chest: ").append(colored(String.valueOf(stock), NamedTextColor.WHITE)),
-            Component.empty(),
-            plain("Click to refresh")
+        ItemStack it = new ItemStack(Material.PAPER);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Stock", NamedTextColor.AQUA));
+        m.lore(List.of(
+            plain("In chest: ").append(colored(String.valueOf(stock),
+                stock > 0 ? NamedTextColor.GREEN : NamedTextColor.RED)),
+            Component.empty(), plain("Click to refresh")
         ));
-        item.setItemMeta(meta);
-        return item;
+        it.setItemMeta(m);
+        return it;
     }
 
     private ItemStack makeDeleteButton() {
-        ItemStack item = new ItemStack(Material.BARRIER);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text("Delete Shop", NamedTextColor.RED)
-            .decoration(TextDecoration.ITALIC, false)
-            .decoration(TextDecoration.BOLD, true));
-        meta.lore(List.of(plain("Click to permanently delete this shop")));
-        item.setItemMeta(meta);
-        return item;
+        ItemStack it = new ItemStack(Material.BARRIER);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(Component.text("Delete Shop", NamedTextColor.RED)
+            .decoration(TextDecoration.ITALIC, false).decoration(TextDecoration.BOLD, true));
+        m.lore(List.of(plain("Click to permanently delete this shop")));
+        it.setItemMeta(m);
+        return it;
     }
 
-    // Price-edit GUI
+    // Price-edit GUI -----------------------------------------------------------
     private ItemStack makePriceDisplay(double price) {
-        Material mat = price > 0 ? Material.GOLD_BLOCK : Material.IRON_BLOCK;
-        ItemStack item = new ItemStack(mat);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text("$" + String.format("%.2f", price), NamedTextColor.GOLD)
-            .decoration(TextDecoration.ITALIC, false)
-            .decoration(TextDecoration.BOLD, true));
-        meta.lore(List.of(plain("Use the buttons to adjust")));
-        item.setItemMeta(meta);
-        return item;
+        ItemStack it = new ItemStack(price > 0 ? Material.GOLD_BLOCK : Material.IRON_BLOCK);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(Component.text("$" + fmt(price), NamedTextColor.GOLD)
+            .decoration(TextDecoration.ITALIC, false).decoration(TextDecoration.BOLD, true));
+        m.lore(List.of(plain("Use the buttons to adjust")));
+        it.setItemMeta(m);
+        return it;
     }
 
-    private ItemStack makeDeltaButton(double delta) {
+    private ItemStack makeDelta(double delta) {
         boolean pos = delta > 0;
         double abs = Math.abs(delta);
         Material mat = pos
-            ? (abs >= 1000 ? Material.LIME_CONCRETE    : abs >= 100 ? Material.LIME_WOOL
-             : abs >= 10   ? Material.LIME_TERRACOTTA   : Material.LIME_STAINED_GLASS_PANE)
-            : (abs >= 1000 ? Material.RED_CONCRETE     : abs >= 100 ? Material.RED_WOOL
-             : abs >= 10   ? Material.RED_TERRACOTTA    : Material.RED_STAINED_GLASS_PANE);
-        String label = (pos ? "+" : "") + String.format("%.0f", delta);
-        ItemStack item = new ItemStack(mat);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text(label, pos ? NamedTextColor.GREEN : NamedTextColor.RED)
-            .decoration(TextDecoration.ITALIC, false)
-            .decoration(TextDecoration.BOLD, true));
-        item.setItemMeta(meta);
-        return item;
+            ? (abs >= 1000 ? Material.LIME_CONCRETE  : abs >= 100 ? Material.LIME_WOOL
+             : abs >= 10   ? Material.LIME_TERRACOTTA : Material.LIME_STAINED_GLASS_PANE)
+            : (abs >= 1000 ? Material.RED_CONCRETE   : abs >= 100 ? Material.RED_WOOL
+             : abs >= 10   ? Material.RED_TERRACOTTA  : Material.RED_STAINED_GLASS_PANE);
+        ItemStack it = new ItemStack(mat);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(Component.text((pos ? "+" : "") + String.format("%.0f", delta),
+            pos ? NamedTextColor.GREEN : NamedTextColor.RED)
+            .decoration(TextDecoration.ITALIC, false).decoration(TextDecoration.BOLD, true));
+        it.setItemMeta(m);
+        return it;
     }
 
     private ItemStack makeResetButton() {
-        ItemStack item = new ItemStack(Material.ORANGE_CONCRETE);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(colored("Reset", NamedTextColor.GOLD));
-        meta.lore(List.of(plain("Set price back to $0.00")));
-        item.setItemMeta(meta);
-        return item;
+        ItemStack it = new ItemStack(Material.ORANGE_CONCRETE);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Reset to $0.00", NamedTextColor.GOLD));
+        it.setItemMeta(m);
+        return it;
     }
 
     private ItemStack makeBackButton() {
-        ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(colored("Back", NamedTextColor.GRAY));
-        meta.lore(List.of(plain("Discard changes")));
-        item.setItemMeta(meta);
-        return item;
+        ItemStack it = new ItemStack(Material.ARROW);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Back", NamedTextColor.GRAY));
+        m.lore(List.of(plain("Discard changes")));
+        it.setItemMeta(m);
+        return it;
     }
 
     private ItemStack makeConfirmButton() {
-        ItemStack item = new ItemStack(Material.EMERALD_BLOCK);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(colored("Confirm", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true));
-        meta.lore(List.of(plain("Save this price")));
-        item.setItemMeta(meta);
-        return item;
+        ItemStack it = new ItemStack(Material.EMERALD_BLOCK);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Confirm", NamedTextColor.GREEN)
+            .decoration(TextDecoration.BOLD, true));
+        m.lore(List.of(plain("Save and return")));
+        it.setItemMeta(m);
+        return it;
     }
 
-    // Buyer GUI
-    private ItemStack makeBuyerInfo(Shop shop) {
-        ItemStack item = new ItemStack(Material.PAPER);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(colored("Shop Info", NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true));
-        meta.lore(List.of(
-            plain("Owner: ").append(colored(shop.getOwnerName(), NamedTextColor.YELLOW)),
-            plain("Price: ").append(colored("$" + String.format("%.2f", shop.getPrice()), NamedTextColor.GREEN))
+    // Buyer stock view ---------------------------------------------------------
+    private ItemStack makeBuyerInfoItem(Shop shop) {
+        ItemStack it = new ItemStack(Material.PAPER);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored(shop.getOwnerName() + "'s Shop", NamedTextColor.GOLD)
+            .decoration(TextDecoration.BOLD, true));
+        m.lore(List.of(
+            plain("Price: ").append(colored("$" + fmt(shop.getPrice()), NamedTextColor.GREEN)),
+            plain("Stock: ").append(colored(String.valueOf(getChestStock(shop)), NamedTextColor.YELLOW))
         ));
-        item.setItemMeta(meta);
-        return item;
+        it.setItemMeta(m);
+        return it;
     }
 
-    private ItemStack makeBuyerDisplay(Shop shop) {
+    private ItemStack makeBuyerStockItem(Shop shop) {
         if (!shop.isConfigured()) {
-            ItemStack item = new ItemStack(Material.RED_STAINED_GLASS_PANE);
-            ItemMeta meta = item.getItemMeta();
-            meta.displayName(colored("Shop not configured", NamedTextColor.RED));
-            item.setItemMeta(meta);
-            return item;
+            ItemStack it = new ItemStack(Material.RED_STAINED_GLASS_PANE);
+            ItemMeta m = it.getItemMeta();
+            m.displayName(colored("Shop not configured yet", NamedTextColor.RED));
+            it.setItemMeta(m);
+            return it;
         }
         ItemStack display = shop.getSellItem().clone();
-        ItemMeta meta = display.hasItemMeta()
-            ? display.getItemMeta()
-            : Bukkit.getItemFactory().getItemMeta(display.getType());
-        List<Component> lore = meta.lore() != null ? new ArrayList<>(meta.lore()) : new ArrayList<>();
+        ItemMeta m = display.hasItemMeta()
+            ? display.getItemMeta() : Bukkit.getItemFactory().getItemMeta(display.getType());
+        List<Component> lore = m.lore() != null ? new ArrayList<>(m.lore()) : new ArrayList<>();
         lore.add(Component.empty());
-        lore.add(plain("Price: ").append(colored("$" + String.format("%.2f", shop.getPrice()),
-            NamedTextColor.GREEN)));
-        lore.add(colored("Click to purchase", NamedTextColor.YELLOW));
-        meta.lore(lore);
-        display.setItemMeta(meta);
+        lore.add(plain("Price: ").append(colored("$" + fmt(shop.getPrice()), NamedTextColor.GREEN)));
+        lore.add(plain("Stock: ").append(colored(String.valueOf(getChestStock(shop)), NamedTextColor.YELLOW)));
+        lore.add(Component.empty());
+        lore.add(colored("Click to buy", NamedTextColor.AQUA));
+        m.lore(lore);
+        display.setItemMeta(m);
+        return display;
+    }
+
+    // Buy-amount GUI -----------------------------------------------------------
+    private ItemStack makeBuyButton(int qty) {
+        ItemStack it = new ItemStack(Material.GREEN_CONCRETE);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Buy " + qty, NamedTextColor.GREEN)
+            .decoration(TextDecoration.BOLD, true));
+        it.setItemMeta(m);
+        return it;
+    }
+
+    private ItemStack makeBuyMaxButton() {
+        ItemStack it = new ItemStack(Material.LIME_CONCRETE);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(colored("Buy Max", NamedTextColor.GREEN)
+            .decoration(TextDecoration.BOLD, true));
+        m.lore(List.of(plain("Buys as much as you can afford/carry")));
+        it.setItemMeta(m);
+        return it;
+    }
+
+    private ItemStack makeBuyDisplay(Shop shop, int qty) {
+        ItemStack display = shop.getSellItem() != null
+            ? shop.getSellItem().clone() : new ItemStack(Material.PAPER);
+        display.setAmount(Math.min(qty, 64));
+        ItemMeta m = display.hasItemMeta()
+            ? display.getItemMeta() : Bukkit.getItemFactory().getItemMeta(display.getType());
+
+        double priceEach = shop.getPrice();
+        double total     = priceEach * qty;
+
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("Buying: ", NamedTextColor.GRAY)
+            .append(Component.text(qty + "× " + friendlyName(shop.getSellItem()),
+                NamedTextColor.WHITE))
+            .decoration(TextDecoration.ITALIC, false));
+        lore.add(plain("Price each: ").append(colored("$" + fmt(priceEach), NamedTextColor.GREEN)));
+        lore.add(plain("Total:      ").append(colored("$" + fmt(total), NamedTextColor.GOLD)));
+        lore.add(Component.empty());
+        lore.add(plain("Stock: ").append(colored(String.valueOf(getChestStock(shop)),
+            NamedTextColor.YELLOW)));
+        m.lore(lore);
+        m.displayName(colored(qty + "× " + friendlyName(shop.getSellItem()), NamedTextColor.WHITE)
+            .decoration(TextDecoration.BOLD, true));
+        display.setItemMeta(m);
         return display;
     }
 
     // ── Component helpers ──────────────────────────────────────────────────────
-
-    private Component plain(String text) {
-        return Component.text(text, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false);
+    private Component plain(String t)  {
+        return Component.text(t, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false);
     }
-
-    private Component colored(String text, NamedTextColor color) {
-        return Component.text(text, color).decoration(TextDecoration.ITALIC, false);
+    private Component colored(String t, NamedTextColor c) {
+        return Component.text(t, c).decoration(TextDecoration.ITALIC, false);
     }
+    private String fmt(double v) { return String.format("%.2f", v); }
 }

@@ -36,4 +36,9 @@ public class EconomyManager {
         if (economy == null) return;
         economy.depositPlayer(Bukkit.getOfflinePlayer(uuid), amount);
     }
+
+    public double getBalance(UUID uuid) {
+        if (economy == null) return 0;
+        return economy.getBalance(Bukkit.getOfflinePlayer(uuid));
+    }
 }
