@@ -1,5 +1,16 @@
 # PlayerShop Changelog
 
+## [1.0.5] - 2026-05-16
+
+### Changed
+- **Price GUI redesigned** — all adjustment buttons are now stained glass panes. Red panes (−100 / −10 / −1 / −0.10) on the left, item preview in the center, green panes (+0.10 / +1 / +10 / +100) on the right. Price display moved to the center of row 1. Reset moved to bottom-left (slot 18), Confirm moved to bottom-right (slot 26).
+- **Free-shop guard** — confirming a $0.00 price is now blocked by default. Set `settings.allow-free-shops: true` in config.yml to permit it.
+
+### Added
+- `settings.allow-free-shops` config option (default: `false`).
+
+---
+
 ## [1.0.4] - 2026-05-16
 
 ### Changed (breaking redesign)

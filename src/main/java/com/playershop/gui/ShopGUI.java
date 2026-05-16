@@ -48,15 +48,15 @@ public class ShopGUI implements Listener {
     private record PendingSetup(Shop shop) {}
 
     // ── Price GUI slots (27-slot) ─────────────────────────────────────────────
-    //  Row 0: [-100][-10][-1][-0.10][DISPLAY][+0.10][+1][+10][+100]
-    //  Row 1: [pad][pad][RESET][pad][ITEM][pad][CONFIRM][pad][pad]
-    //  Row 2: [pad × 9]
-    private static final int PE_M100 = 0, PE_M10 = 1, PE_M1 = 2, PE_MD1  = 3;
-    private static final int PE_DISP = 4;
+    //  Row 0: [-100][-10][-1][-0.10][ITEM][+0.10][+1][+10][+100]
+    //  Row 1: [pad×4][PRICE_DISPLAY][pad×4]
+    //  Row 2: [RESET][pad×7][CONFIRM]
+    private static final int PE_M100 = 0, PE_M10 = 1, PE_M1 = 2, PE_MD1 = 3;
+    private static final int PE_ITEM = 4;
     private static final int PE_PD1  = 5, PE_P1  = 6, PE_P10 = 7, PE_P100 = 8;
-    private static final int PE_RESET   = 11;
-    private static final int PE_ITEM    = 13;
-    private static final int PE_CONFIRM = 15;
+    private static final int PE_DISP    = 13;
+    private static final int PE_RESET   = 18;
+    private static final int PE_CONFIRM = 26;
 
     // ── Buyer GUI slots (27-slot) ─────────────────────────────────────────────
     //  Row 0: [-stack][-8][-1][pad][ITEM][pad][+1][+8][+stack]
@@ -121,17 +121,20 @@ public class ShopGUI implements Listener {
     private void renderPriceGUI(PriceSession ps) {
         Inventory inv = ps.inventory;
         fill(inv, makeFiller());
-        inv.setItem(PE_M100, makeDelta(-100));
-        inv.setItem(PE_M10,  makeDelta(-10));
-        inv.setItem(PE_M1,   makeDelta(-1));
-        inv.setItem(PE_MD1,  makeDeltaDecimal(-0.10));
-        inv.setItem(PE_DISP, makePriceDisplay(ps.pending));
-        inv.setItem(PE_PD1,  makeDeltaDecimal(+0.10));
-        inv.setItem(PE_P1,   makeDelta(+1));
-        inv.setItem(PE_P10,  makeDelta(+10));
-        inv.setItem(PE_P100, makeDelta(+100));
-        inv.setItem(PE_RESET,   makeResetButton());
+        // Row 0: red decrease panes | item preview | green increase panes
+        inv.setItem(PE_M100, makePricePane(-100));
+        inv.setItem(PE_M10,  makePricePane(-10));
+        inv.setItem(PE_M1,   makePricePane(-1));
+        inv.setItem(PE_MD1,  makePricePane(-0.10));
         if (ps.shop.getSellItem() != null) inv.setItem(PE_ITEM, makeItemPreview(ps.shop));
+        inv.setItem(PE_PD1,  makePricePane(+0.10));
+        inv.setItem(PE_P1,   makePricePane(+1));
+        inv.setItem(PE_P10,  makePricePane(+10));
+        inv.setItem(PE_P100, makePricePane(+100));
+        // Row 1: price display centered
+        inv.setItem(PE_DISP, makePriceDisplay(ps.pending));
+        // Row 2: reset bottom-left, confirm bottom-right
+        inv.setItem(PE_RESET,   makeResetButton());
         inv.setItem(PE_CONFIRM, makeConfirmButton("Confirm", true));
     }
 
@@ -238,7 +241,8 @@ public class ShopGUI implements Listener {
                 ps.inventory.setItem(PE_DISP, makePriceDisplay(0));
             }
             case PE_CONFIRM -> {
-                if (ps.pending <= 0) {
+                boolean allowFree = plugin.getConfig().getBoolean("settings.allow-free-shops", false);
+                if (!allowFree && ps.pending <= 0) {
                     player.sendMessage(Component.text("Price must be above $0.00.", NamedTextColor.RED));
                     return;
                 }
@@ -515,29 +519,14 @@ public class ShopGUI implements Listener {
         return it;
     }
 
-    private ItemStack makeDelta(double delta) {
+    private ItemStack makePricePane(double delta) {
         boolean pos = delta > 0;
-        double abs = Math.abs(delta);
-        Material mat = pos
-            ? (abs >= 100 ? Material.LIME_CONCRETE  : abs >= 10 ? Material.LIME_WOOL
-                          : Material.LIME_STAINED_GLASS_PANE)
-            : (abs >= 100 ? Material.RED_CONCRETE   : abs >= 10 ? Material.RED_WOOL
-                          : Material.RED_STAINED_GLASS_PANE);
-        ItemStack it = new ItemStack(mat);
+        ItemStack it = new ItemStack(pos ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE);
         ItemMeta m = it.getItemMeta();
-        m.displayName(Component.text((pos ? "+" : "") + String.format("%.0f", delta),
-                pos ? NamedTextColor.GREEN : NamedTextColor.RED)
-            .decoration(TextDecoration.ITALIC, false).decoration(TextDecoration.BOLD, true));
-        it.setItemMeta(m);
-        return it;
-    }
-
-    private ItemStack makeDeltaDecimal(double delta) {
-        boolean pos = delta > 0;
-        ItemStack it = new ItemStack(pos ? Material.LIME_TERRACOTTA : Material.RED_TERRACOTTA);
-        ItemMeta m = it.getItemMeta();
-        m.displayName(Component.text(String.format("%+.2f", delta),
-                pos ? NamedTextColor.GREEN : NamedTextColor.RED)
+        String label = Math.abs(delta) < 1
+            ? String.format("%+.2f", delta)
+            : String.format("%+.0f", delta);
+        m.displayName(Component.text(label, pos ? NamedTextColor.GREEN : NamedTextColor.RED)
             .decoration(TextDecoration.ITALIC, false).decoration(TextDecoration.BOLD, true));
         it.setItemMeta(m);
         return it;

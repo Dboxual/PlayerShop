@@ -1,6 +1,7 @@
 settings:
   max-shops-per-player: 3
   debug: false
+  allow-free-shops: false
 
 holograms:
   enabled: true
