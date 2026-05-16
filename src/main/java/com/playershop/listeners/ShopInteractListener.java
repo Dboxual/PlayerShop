@@ -63,8 +63,14 @@ public class ShopInteractListener implements Listener {
                 handleCreate(player, primary);
             }
         } else if (shopOpt.isPresent()) {
-            event.setCancelled(true);
-            plugin.getShopGUI().open(player, shopOpt.get());
+            Shop shop = shopOpt.get();
+            if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
+                // Owner/admin → vanilla chest opens normally so they can stock it
+            } else {
+                // Non-owner → buyer GUI
+                event.setCancelled(true);
+                plugin.getShopGUI().open(player, shop);
+            }
         }
         // No shop, no shovel-shift → vanilla chest behaviour
     }

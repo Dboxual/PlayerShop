@@ -1,5 +1,15 @@
 # PlayerShop Changelog
 
+## [1.0.2] - 2026-05-16
+
+### Fixed
+- Regular right-click on a shop chest now opens the physical chest for the **owner/admin** so they can stock it normally
+- Regular right-click by a **non-owner** on a shop chest still opens the buyer GUI
+- Regular right-click on a **non-shop chest** is fully vanilla (unchanged)
+- Only shift+right-click with a shovel opens the setup GUI
+
+---
+
 ## [1.0.1] - 2026-05-16
 
 ### Changed
