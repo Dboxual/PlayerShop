@@ -30,10 +30,12 @@ public class ShopGUI implements Listener {
     private sealed interface Session permits PriceSession, BuyerSession {}
 
     private static final class PriceSession implements Session {
-        final Shop shop; final Inventory inventory; double pending;
+        final Shop shop; final Inventory inventory; int pendingCents;
         PriceSession(Shop shop, Inventory inv, double init) {
-            this.shop = shop; this.inventory = inv; this.pending = init;
+            this.shop = shop; this.inventory = inv;
+            this.pendingCents = (int) Math.round(init * 100);
         }
+        double pending() { return pendingCents / 100.0; }
     }
 
     private static final class BuyerSession implements Session {
@@ -48,13 +50,13 @@ public class ShopGUI implements Listener {
     private record PendingSetup(Shop shop) {}
 
     // ── Price GUI slots (27-slot) ─────────────────────────────────────────────
-    //  Row 0: [-100][-10][-1][-0.10][ITEM][+0.10][+1][+10][+100]
-    //  Row 1: [pad×4][PRICE_DISPLAY][pad×4]
+    //  Row 0: [-100][-10][-1][-0.10][PRICE_DISPLAY][+0.10][+1][+10][+100]
+    //  Row 1: [pad×4][ITEM][pad×4]
     //  Row 2: [RESET][pad×7][CONFIRM]
     private static final int PE_M100 = 0, PE_M10 = 1, PE_M1 = 2, PE_MD1 = 3;
-    private static final int PE_ITEM = 4;
+    private static final int PE_DISP = 4;
     private static final int PE_PD1  = 5, PE_P1  = 6, PE_P10 = 7, PE_P100 = 8;
-    private static final int PE_DISP    = 13;
+    private static final int PE_ITEM    = 13;
     private static final int PE_RESET   = 18;
     private static final int PE_CONFIRM = 26;
 
@@ -121,18 +123,18 @@ public class ShopGUI implements Listener {
     private void renderPriceGUI(PriceSession ps) {
         Inventory inv = ps.inventory;
         fill(inv, makeFiller());
-        // Row 0: red decrease panes | item preview | green increase panes
+        // Row 0: red decrease panes | price display | green increase panes
         inv.setItem(PE_M100, makePricePane(-100));
         inv.setItem(PE_M10,  makePricePane(-10));
         inv.setItem(PE_M1,   makePricePane(-1));
         inv.setItem(PE_MD1,  makePricePane(-0.10));
-        if (ps.shop.getSellItem() != null) inv.setItem(PE_ITEM, makeItemPreview(ps.shop));
+        inv.setItem(PE_DISP, makePriceDisplay(ps.pending()));
         inv.setItem(PE_PD1,  makePricePane(+0.10));
         inv.setItem(PE_P1,   makePricePane(+1));
         inv.setItem(PE_P10,  makePricePane(+10));
         inv.setItem(PE_P100, makePricePane(+100));
-        // Row 1: price display centered
-        inv.setItem(PE_DISP, makePriceDisplay(ps.pending));
+        // Row 1: item preview centered
+        if (ps.shop.getSellItem() != null) inv.setItem(PE_ITEM, makeItemPreview(ps.shop));
         // Row 2: reset bottom-left, confirm bottom-right
         inv.setItem(PE_RESET,   makeResetButton());
         inv.setItem(PE_CONFIRM, makeConfirmButton("Confirm", true));
@@ -160,22 +162,28 @@ public class ShopGUI implements Listener {
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         Session session = sessions.get(player.getUniqueId());
         if (session == null) return;
         if (!event.getInventory().equals(sessionInventory(session))) return;
 
-        if (event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
-            event.setCancelled(true); return;
+        // Reject non-intentional click types (offhand swap, double-click collect, etc.)
+        ClickType ct = event.getClick();
+        if (ct == ClickType.DOUBLE_CLICK || ct == ClickType.UNKNOWN
+                || ct == ClickType.SWAP_OFFHAND || ct == ClickType.CREATIVE) {
+            event.setCancelled(true);
+            return;
         }
+
         int raw     = event.getRawSlot();
         int topSize = event.getView().getTopInventory().getSize();
-        if (raw >= topSize && event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY) {
-            event.setCancelled(true); return;
+        // Cancel all bottom-inventory interactions (shift-click-up, item movement, etc.)
+        if (raw >= topSize) {
+            event.setCancelled(true);
+            return;
         }
-        if (raw >= topSize) return;
 
         event.setCancelled(true);
         switch (session) {
@@ -228,29 +236,29 @@ public class ShopGUI implements Listener {
 
     private void handlePriceClick(Player player, PriceSession ps, int slot) {
         switch (slot) {
-            case PE_M100    -> applyDelta(ps, -100);
-            case PE_M10     -> applyDelta(ps, -10);
-            case PE_M1      -> applyDelta(ps, -1);
-            case PE_MD1     -> applyDelta(ps, -0.10);
-            case PE_PD1     -> applyDelta(ps, +0.10);
-            case PE_P1      -> applyDelta(ps, +1);
-            case PE_P10     -> applyDelta(ps, +10);
-            case PE_P100    -> applyDelta(ps, +100);
+            case PE_M100    -> applyDelta(ps, -10000);
+            case PE_M10     -> applyDelta(ps, -1000);
+            case PE_M1      -> applyDelta(ps, -100);
+            case PE_MD1     -> applyDelta(ps, -10);
+            case PE_PD1     -> applyDelta(ps, +10);
+            case PE_P1      -> applyDelta(ps, +100);
+            case PE_P10     -> applyDelta(ps, +1000);
+            case PE_P100    -> applyDelta(ps, +10000);
             case PE_RESET   -> {
-                ps.pending = 0;
+                ps.pendingCents = 0;
                 ps.inventory.setItem(PE_DISP, makePriceDisplay(0));
             }
             case PE_CONFIRM -> {
                 boolean allowFree = plugin.getConfig().getBoolean("settings.allow-free-shops", false);
-                if (!allowFree && ps.pending <= 0) {
+                if (!allowFree && ps.pendingCents <= 0) {
                     player.sendMessage(Component.text("Price must be above $0.00.", NamedTextColor.RED));
                     return;
                 }
-                ps.shop.setPrice(ps.pending);
+                ps.shop.setPrice(ps.pending());
                 plugin.getStorage().saveShop(ps.shop);
                 plugin.getHolograms().createOrUpdate(ps.shop);
                 player.sendMessage(Component.text("Shop ready! Price: ", NamedTextColor.GREEN)
-                    .append(Component.text("$" + fmt(ps.pending) + " per stack", NamedTextColor.GOLD))
+                    .append(Component.text("$" + fmt(ps.pending()) + " per stack", NamedTextColor.GOLD))
                     .append(Component.text(".", NamedTextColor.GREEN)));
                 player.closeInventory();
             }
@@ -465,9 +473,9 @@ public class ShopGUI implements Listener {
         return Math.max(0, Math.min(byBalance, Math.min(byStock, byInvSpace)));
     }
 
-    private void applyDelta(PriceSession ps, double delta) {
-        ps.pending = Math.max(0.0, Math.round((ps.pending + delta) * 100.0) / 100.0);
-        ps.inventory.setItem(PE_DISP, makePriceDisplay(ps.pending));
+    private void applyDelta(PriceSession ps, int deltaCents) {
+        ps.pendingCents = Math.max(0, ps.pendingCents + deltaCents);
+        ps.inventory.setItem(PE_DISP, makePriceDisplay(ps.pending()));
     }
 
     private void scheduleOpen(Player player, Runnable action) {

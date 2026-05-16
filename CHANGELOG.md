@@ -1,5 +1,14 @@
 # PlayerShop Changelog
 
+## [1.0.6] - 2026-05-16
+
+### Fixed
+- **Price GUI — duplicate click handling** — `onInventoryClick` now uses `ignoreCancelled = true` and filters out non-intentional `ClickType`s (`DOUBLE_CLICK`, `SWAP_OFFHAND`, `UNKNOWN`, `CREATIVE`). Bottom-inventory clicks are fully cancelled instead of silently ignored. Each button press now adjusts the price exactly once.
+- **Price GUI — floating-point drift on ±0.10** — `PriceSession` now stores price as integer cents (`int pendingCents`) instead of `double`. All delta arithmetic is integer (e.g. +0.10 → +10 cents). No rounding errors; three +0.10 clicks give exactly $0.30.
+- **Price GUI — item/display swap** — The item being sold now appears in the center of row 1 (slot 13). The price-display block now sits in the center of row 0 (slot 4), flanked directly by the +/− buttons. All buttons, reset, confirm, and glass-pane layout are unchanged.
+
+---
+
 ## [1.0.5] - 2026-05-16
 
 ### Changed
