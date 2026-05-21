@@ -1,5 +1,22 @@
 # PlayerShop Changelog
 
+## [1.0.7] - 2026-05-21
+
+### Investigation: PlayerInteractEvent guard
+
+**Root cause confirmed: no cross-plugin interference exists.** The guard `!(block.getBlockData() instanceof Chest)` already returns immediately for every non-chest block. Signs (Bridge queue signs, any other signs), Pinpoint objects, and all other non-chest blocks physically cannot reach any `event.setCancelled(true)` call in `ShopInteractListener`.
+
+### Changed
+
+- **`ShopInteractListener`** — Refactored block eligibility into a named `isEligibleBlock(block)` helper (checks `org.bukkit.block.data.type.Chest`) so the guard is explicit and auditable.
+- **Debug logging** — When `settings.debug: true`, logs every interaction at the start of the handler:
+  - For non-chest blocks: logs block type, location, and "no action taken, event untouched" — confirms PlayerShop skips signs/pinpoints.
+  - For chest blocks: logs primary location, shop present/absent, `shovelShift`, and event-cancelled state before processing.
+  - Per-branch decision logged (setup mode, buyer GUI, vanilla, new shop creation).
+- **`build.sh` fixed** — Classpath was pointing to a non-existent `WaypointSystem/libs` directory. Now points to `../Bridge-Plugin/libs`. Added Windows path separator auto-detection (`;` vs `:`) matching Bridge-Plugin's build script pattern.
+
+---
+
 ## [1.0.6] - 2026-05-16
 
 ### Fixed
