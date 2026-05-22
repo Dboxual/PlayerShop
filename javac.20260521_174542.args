@@ -1,0 +1,7 @@
+--release
+21
+-cp
+C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\paper-api.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\vault-api.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\adventure-api.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\adventure-key.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\jetbrains-annotations.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\guava.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\examination-api.jar;C:\\Users\\dkoca\\OneDrive\\Desktop\\Claude\\WaypointSystem\\libs\\bungeecord-chat.jar
+-d
+C:/Users/dkoca/OneDrive/Desktop/Claude/PlayerShop/build/classes
+@C:/Users/dkoca/OneDrive/Desktop/Claude/PlayerShop/build/sources.txt
