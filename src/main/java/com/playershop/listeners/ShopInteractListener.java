@@ -1,7 +1,7 @@
 package com.playershop.listeners;
 
 import com.playershop.PlayerShopPlugin;
-import com.playershop.data.Shop;
+import com.playershop.data.PlayerShop;
 import com.playershop.util.ChestUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -17,22 +17,21 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 public class ShopInteractListener implements Listener {
 
-    private static final Set<Material> SHOVELS = Set.of(
-        Material.WOODEN_SHOVEL, Material.STONE_SHOVEL, Material.IRON_SHOVEL,
-        Material.GOLDEN_SHOVEL, Material.DIAMOND_SHOVEL, Material.NETHERITE_SHOVEL
+    private static final Set<Material> AXES = Set.of(
+        Material.WOODEN_AXE, Material.STONE_AXE,  Material.IRON_AXE,
+        Material.GOLDEN_AXE, Material.DIAMOND_AXE, Material.NETHERITE_AXE
     );
 
     private final PlayerShopPlugin plugin;
 
-    public ShopInteractListener(PlayerShopPlugin plugin) {
-        this.plugin = plugin;
-    }
+    public ShopInteractListener(PlayerShopPlugin plugin) { this.plugin = plugin; }
 
     @EventHandler
     public void onInteract(PlayerInteractEvent event) {
@@ -41,103 +40,79 @@ public class ShopInteractListener implements Listener {
 
         Block block = event.getClickedBlock();
         if (block == null) return;
+        if (!(block.getBlockData() instanceof Chest)) return;
 
-        boolean debug = plugin.getConfig().getBoolean("settings.debug", false);
-
-        // Guard: only process chest blocks. Signs, Pinpoint objects, lodestones,
-        // anvils, and all other non-chest blocks are ignored entirely — we never
-        // cancel the event for them.
-        if (!isEligibleBlock(block)) {
-            if (debug) {
-                plugin.getLogger().info("[PlayerShop] Skipping interaction: block="
-                        + block.getType() + " at " + fmtLoc(block.getLocation())
-                        + " is not a chest — no action taken, event untouched.");
-            }
-            return;
-        }
-
-        Player player = event.getPlayer();
+        Player   player  = event.getPlayer();
         Location primary = ChestUtil.primaryLocation(block);
-        Optional<Shop> shopOpt = plugin.getShopManager().getShopAt(primary);
-        boolean shovelShift = player.isSneaking() && isShovel(event.getItem());
+        Optional<PlayerShop> shopOpt = plugin.getShopManager().getPlayerShopByChest(primary);
+        boolean  axeShift = player.isSneaking() && isAxe(event.getItem());
 
-        if (debug) {
-            plugin.getLogger().info("[PlayerShop] Chest click: block=" + block.getType()
-                    + " at " + fmtLoc(block.getLocation())
-                    + " primaryLoc=" + fmtLoc(primary)
-                    + " shop=" + shopOpt.isPresent()
-                    + " shovelShift=" + shovelShift
-                    + " eventCancelled=" + event.isCancelled());
-        }
-
-        if (shovelShift) {
-            // Shift+shovel on any chest → setup/create shop. Cancel to prevent chest open.
+        if (axeShift) {
             event.setCancelled(true);
             if (shopOpt.isPresent()) {
-                Shop shop = shopOpt.get();
+                PlayerShop shop = shopOpt.get();
                 if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
-                    if (debug) plugin.getLogger().info("[PlayerShop] Opening setup mode for " + player.getName() + " on existing shop.");
-                    plugin.getShopGUI().enterSetupMode(player, shop);
+                    plugin.getShopGUI().openOwnerGUI(player, shop);
                 } else {
-                    player.sendMessage(Component.text("This chest belongs to another player's shop.",
-                        NamedTextColor.RED));
+                    player.sendMessage(Component.text(
+                        "This chest belongs to another player's shop.", NamedTextColor.RED));
                 }
             } else {
-                if (debug) plugin.getLogger().info("[PlayerShop] Creating new shop for " + player.getName() + " at " + fmtLoc(primary) + ".");
                 handleCreate(player, primary);
             }
         } else if (shopOpt.isPresent()) {
-            Shop shop = shopOpt.get();
+            PlayerShop shop = shopOpt.get();
+            event.setCancelled(true);
             if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
-                // Owner/admin → vanilla chest opens normally for restocking
-                if (debug) plugin.getLogger().info("[PlayerShop] Owner/admin opening own shop chest — vanilla behavior.");
+                plugin.getShopGUI().openOwnerGUI(player, shop);
             } else {
-                // Non-owner → buyer GUI (only if configured)
-                event.setCancelled(true);
-                if (!shop.isConfigured()) {
-                    if (debug) plugin.getLogger().info("[PlayerShop] Shop not configured; informing " + player.getName() + ".");
-                    player.sendMessage(Component.text("This shop hasn't been set up yet.", NamedTextColor.GRAY));
-                } else {
-                    if (debug) plugin.getLogger().info("[PlayerShop] Opening buyer GUI for " + player.getName() + ".");
-                    plugin.getShopGUI().open(player, shop);
-                }
+                plugin.getShopGUI().openBuyerGUI(player, shop);
             }
         }
-        // No shop, no shovel-shift → vanilla chest behaviour (no cancel)
+        // No shop, no axe-shift → vanilla chest behaviour (no cancel)
     }
 
     private void handleCreate(Player player, Location primary) {
-        int maxShops = plugin.getConfig().getInt("settings.max-shops-per-player", 3);
-        if (!player.hasPermission("playershop.admin")) {
-            long owned = plugin.getShopManager().getAllShops().stream()
-                .filter(s -> s.isOwner(player.getUniqueId()))
-                .count();
-            if (owned >= maxShops) {
+        // Reject if the target chest is already part of a double chest
+        if (primary.getBlock().getBlockData() instanceof Chest chestData
+                && chestData.getType() != Chest.Type.SINGLE) {
+            player.sendMessage(Component.text(
+                "PlayerShop chests must be single chests.", NamedTextColor.RED));
+            return;
+        }
+
+        Optional<PlayerShop> existing = plugin.getShopManager().getPlayerShop(player.getUniqueId());
+
+        if (existing.isPresent()) {
+            // Player already has a shop — link this chest to it
+            PlayerShop shop     = existing.get();
+            int        maxChests = plugin.getConfig().getInt("settings.max-shops-per-player", 3);
+            if (!player.hasPermission("playershop.admin") && shop.getChests().size() >= maxChests) {
                 player.sendMessage(Component.text(
-                    "You have reached the shop limit (" + maxShops + ").", NamedTextColor.RED));
+                    "You have reached the shop chest limit (" + maxChests + ").", NamedTextColor.RED));
                 return;
             }
+            shop.addChest(primary);
+            plugin.getShopManager().indexChest(shop, primary);
+            plugin.getStorage().saveShop(shop);
+            plugin.getHolograms().createOrUpdate(shop);
+            plugin.getShopGUI().openOwnerGUI(player, shop);
+            player.sendMessage(Component.text(
+                "Shop chest linked! All your chests share the same shop.", NamedTextColor.GREEN));
+        } else {
+            // First chest — create the player's PlayerShop
+            PlayerShop shop = new PlayerShop(
+                player.getUniqueId(), player.getName(), List.of(primary), List.of());
+            plugin.getShopManager().addShop(shop);
+            plugin.getStorage().saveShop(shop);
+            plugin.getHolograms().createOrUpdate(shop);
+            plugin.getShopGUI().openOwnerGUI(player, shop);
+            player.sendMessage(Component.text(
+                "Shop created! Use the menu to set it up.", NamedTextColor.GREEN));
         }
-        Shop shop = new Shop(UUID.randomUUID(), player.getUniqueId(), player.getName(),
-            primary, null, 0);
-        plugin.getShopManager().addShop(shop);
-        plugin.getStorage().saveShop(shop);
-        plugin.getHolograms().createOrUpdate(shop);
-        plugin.getShopGUI().enterSetupMode(player, shop);
-        player.sendMessage(Component.text("Shop created! Add the items you want to sell, then close the chest.", NamedTextColor.GREEN));
     }
 
-    // Only CHEST and TRAPPED_CHEST blocks are eligible shop blocks.
-    // Barrel, Sign, and all other blocks are not — we must not cancel their events.
-    private boolean isEligibleBlock(Block block) {
-        return block.getBlockData() instanceof Chest;
-    }
-
-    private boolean isShovel(ItemStack item) {
-        return item != null && SHOVELS.contains(item.getType());
-    }
-
-    private String fmtLoc(Location loc) {
-        return loc.getWorld().getName() + " " + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
+    private boolean isAxe(ItemStack item) {
+        return item != null && AXES.contains(item.getType());
     }
 }

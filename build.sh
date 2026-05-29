@@ -2,7 +2,7 @@
 set -e
 BASE="$(cd "$(dirname "$0")" && pwd)"
 BASE_WIN="$(cd "$(dirname "$0")" && pwd -W 2>/dev/null || pwd)"
-LIBS="$BASE_WIN/../Bridge-Plugin/libs"
+LIBS="$BASE_WIN/../Pinpoint/libs"
 SRC="$BASE/src/main/java"
 OUT="$BASE_WIN/build/classes"
 RES="$BASE_WIN/build/resources"

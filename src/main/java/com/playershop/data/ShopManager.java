@@ -1,43 +1,57 @@
 package com.playershop.data;
 
 import org.bukkit.Location;
-
 import java.util.*;
 
 public class ShopManager {
 
-    private final Map<UUID, Shop> shopsById      = new HashMap<>();
-    private final Map<String, UUID> locationIndex = new HashMap<>();
+    // Primary store: one PlayerShop per owner UUID
+    private final Map<UUID, PlayerShop> byOwner    = new HashMap<>();
+    // Fast reverse lookup: chest location key → ownerUuid
+    private final Map<String, UUID>     chestIndex = new HashMap<>();
 
-    public void addShop(Shop shop) {
-        shopsById.put(shop.getId(), shop);
-        locationIndex.put(locationKey(shop.getChestLocation()), shop.getId());
+    public void addShop(PlayerShop shop) {
+        byOwner.put(shop.getOwnerUuid(), shop);
+        for (Location loc : shop.getChests()) {
+            chestIndex.put(locationKey(loc), shop.getOwnerUuid());
+        }
     }
 
-    public void removeShop(UUID id) {
-        Shop shop = shopsById.remove(id);
-        if (shop != null) locationIndex.remove(locationKey(shop.getChestLocation()));
+    /** Adds a chest location to the index without touching the PlayerShop object. */
+    public void indexChest(PlayerShop shop, Location loc) {
+        chestIndex.put(locationKey(loc), shop.getOwnerUuid());
     }
 
-    public Optional<Shop> getShopAt(Location loc) {
-        UUID id = locationIndex.get(locationKey(loc));
-        return id != null ? Optional.ofNullable(shopsById.get(id)) : Optional.empty();
+    /** Removes a chest location from the index without touching the PlayerShop object. */
+    public void unindexChest(Location loc) {
+        chestIndex.remove(locationKey(loc));
     }
 
-    public Optional<Shop> getShop(UUID id) {
-        return Optional.ofNullable(shopsById.get(id));
+    public void removeShop(UUID ownerUuid) {
+        PlayerShop shop = byOwner.remove(ownerUuid);
+        if (shop != null) shop.getChests().forEach(loc -> chestIndex.remove(locationKey(loc)));
     }
 
-    public Collection<Shop> getAllShops() {
-        return Collections.unmodifiableCollection(shopsById.values());
+    public Optional<PlayerShop> getPlayerShop(UUID ownerUuid) {
+        return Optional.ofNullable(byOwner.get(ownerUuid));
+    }
+
+    public Optional<PlayerShop> getPlayerShopByChest(Location loc) {
+        UUID ownerUuid = chestIndex.get(locationKey(loc));
+        return ownerUuid != null ? Optional.ofNullable(byOwner.get(ownerUuid)) : Optional.empty();
+    }
+
+    public Collection<PlayerShop> getAllShops() {
+        return Collections.unmodifiableCollection(byOwner.values());
     }
 
     public void clear() {
-        shopsById.clear();
-        locationIndex.clear();
+        byOwner.clear();
+        chestIndex.clear();
     }
 
     public static String locationKey(Location loc) {
-        return loc.getWorld().getName() + "," + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
+        return loc.getWorld().getName() + "," + loc.getBlockX()
+             + "," + loc.getBlockY() + "," + loc.getBlockZ();
     }
 }

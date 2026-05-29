@@ -1,36 +1,31 @@
 package com.playershop.hologram;
 
 import com.playershop.PlayerShopPlugin;
-import com.playershop.data.Shop;
+import com.playershop.data.PlayerShop;
 import com.playershop.util.ChestUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.world.ChunkLoadEvent;
 
 import java.util.*;
 
-/**
- * Manages shop holograms using invisible armor stands.
- *
- * DecentHolograms is listed as a soft-depend in plugin.yml. If it is ever
- * added as a compile-time dep (jar in libs/), swap the spawnLines() body for
- * a DHAPI.createHologram() call while keeping the same public API surface.
- */
-public class HologramManager {
+public class HologramManager implements Listener {
 
     private static final double LINE_GAP = 0.28;
 
     private final PlayerShopPlugin plugin;
     private boolean enabled;
+    // Key: ownerUuid → all armor stands for all this player's chests
     private final Map<UUID, List<ArmorStand>> holograms = new HashMap<>();
 
-    public HologramManager(PlayerShopPlugin plugin) {
-        this.plugin = plugin;
-    }
+    public HologramManager(PlayerShopPlugin plugin) { this.plugin = plugin; }
 
     public void reload() {
         enabled = plugin.getConfig().getBoolean("holograms.enabled", true);
@@ -38,16 +33,24 @@ public class HologramManager {
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
-    public void createOrUpdate(Shop shop) {
+    /** Destroys and recreates holograms above every loaded chest registered to this shop. */
+    public void createOrUpdate(PlayerShop shop) {
         if (!enabled) return;
-        delete(shop.getId());
-        Location loc = ChestUtil.hologramLocation(shop.getChestLocation().getBlock());
-        if (loc.getWorld() == null) return;
-        spawnLines(shop.getId(), loc, buildLines(shop));
+        delete(shop.getOwnerUuid());
+        List<Component> lines     = buildLines(shop);
+        List<ArmorStand> allStands = new ArrayList<>();
+        for (Location chestLoc : shop.getChests()) {
+            Location hologramLoc = ChestUtil.hologramLocation(chestLoc.getBlock());
+            if (hologramLoc.getWorld() == null) continue;
+            // Skip unloaded chunks — ChunkLoadEvent will trigger re-creation when they load
+            if (!hologramLoc.getChunk().isLoaded()) continue;
+            allStands.addAll(spawnLines(hologramLoc, lines));
+        }
+        if (!allStands.isEmpty()) holograms.put(shop.getOwnerUuid(), allStands);
     }
 
-    public void delete(UUID shopId) {
-        List<ArmorStand> stands = holograms.remove(shopId);
+    public void delete(UUID ownerUuid) {
+        List<ArmorStand> stands = holograms.remove(ownerUuid);
         if (stands != null) stands.forEach(Entity::remove);
     }
 
@@ -56,40 +59,44 @@ public class HologramManager {
         holograms.clear();
     }
 
+    // ── Chunk load event ───────────────────────────────────────────────────────
+
+    /**
+     * When a chunk loads, respawn holograms for any shop that has a chest in that chunk.
+     * This ensures holograms appear when players approach, not just on server start.
+     */
+    @EventHandler
+    public void onChunkLoad(ChunkLoadEvent event) {
+        if (!enabled) return;
+        Chunk chunk = event.getChunk();
+        for (PlayerShop shop : plugin.getShopManager().getAllShops()) {
+            for (Location chestLoc : shop.getChests()) {
+                if (chestLoc.getWorld() != null
+                        && chestLoc.getWorld().equals(chunk.getWorld())
+                        && (chestLoc.getBlockX() >> 4) == chunk.getX()
+                        && (chestLoc.getBlockZ() >> 4) == chunk.getZ()) {
+                    createOrUpdate(shop);
+                    break; // one chest match per shop is enough to trigger a full update
+                }
+            }
+        }
+    }
+
     // ── Line content ───────────────────────────────────────────────────────────
 
-    private List<Component> buildLines(Shop shop) {
-        if (!shop.isConfigured()) {
-            return List.of(
-                Component.text("Shop", NamedTextColor.GOLD)
-                    .decoration(TextDecoration.ITALIC, false)
-                    .decoration(TextDecoration.BOLD, true),
-                Component.text("Place items to sell", NamedTextColor.GRAY)
-                    .decoration(TextDecoration.ITALIC, true)
-            );
-        }
-        List<Component> lines = new ArrayList<>();
-        lines.add(Component.text(shop.getOwnerName() + "'s Shop", NamedTextColor.GOLD)
-            .decoration(TextDecoration.ITALIC, false)
-            .decoration(TextDecoration.BOLD, true));
-        lines.add(Component.text("Selling: ", NamedTextColor.GRAY)
-            .append(Component.text(friendlyName(shop.getSellItem()), NamedTextColor.YELLOW))
-            .decoration(TextDecoration.ITALIC, false));
-        lines.add(Component.text("Price: ", NamedTextColor.GRAY)
-            .append(Component.text("$" + String.format("%.2f", shop.getPrice()) + " / stack", NamedTextColor.GREEN))
-            .decoration(TextDecoration.ITALIC, false));
-        int stock = getStock(shop);
-        lines.add(Component.text("Stock: ", NamedTextColor.GRAY)
-            .append(Component.text(String.valueOf(stock), stock > 0 ? NamedTextColor.GREEN : NamedTextColor.RED))
-            .decoration(TextDecoration.ITALIC, false));
-        lines.add(Component.text("Right-click to buy", NamedTextColor.AQUA)
-            .decoration(TextDecoration.ITALIC, true));
-        return lines;
+    private List<Component> buildLines(PlayerShop shop) {
+        return List.of(
+            Component.text(shop.getOwnerName() + "'s Shop", NamedTextColor.GOLD)
+                .decoration(TextDecoration.ITALIC, false)
+                .decoration(TextDecoration.BOLD, true),
+            Component.text("Right-click to manage", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, true)
+        );
     }
 
     // ── Armor stand spawning ───────────────────────────────────────────────────
 
-    private void spawnLines(UUID shopId, Location base, List<Component> lines) {
+    private List<ArmorStand> spawnLines(Location base, List<Component> lines) {
         List<ArmorStand> stands = new ArrayList<>();
         for (int i = 0; i < lines.size(); i++) {
             final Component text = lines.get(i);
@@ -106,23 +113,6 @@ public class HologramManager {
             stand.customName(text);
             stands.add(stand);
         }
-        holograms.put(shopId, stands);
-    }
-
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
-    private int getStock(Shop shop) {
-        if (shop.getSellItem() == null) return 0;
-        org.bukkit.block.Block block = shop.getChestLocation().getBlock();
-        if (!(block.getState() instanceof org.bukkit.block.Chest cs)) return 0;
-        int count = 0;
-        for (ItemStack s : cs.getInventory().getContents()) {
-            if (s != null && s.isSimilar(shop.getSellItem())) count += s.getAmount();
-        }
-        return count;
-    }
-
-    private String friendlyName(ItemStack item) {
-        return item.getType().name().replace('_', ' ');
+        return stands;
     }
 }
