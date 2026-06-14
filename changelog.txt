@@ -1,0 +1,8 @@
+## v1.0.26 — 2026-06-10
+- Added ±$100 price buttons to the pricing GUI (slots 9 and 17).
+  The full button row is now: -$100 | -$10 | -$1 | -$0.10 | [item] | +$0.10 | +$1 | +$10 | +$100
+- All existing smaller increment/decrement buttons unchanged.
+- Price display updates immediately on click; confirmed price carries through to the listing correctly.
+
+## v1.0.25 — prior
+- Stock GUI, remove listing, debug inspect improvements.

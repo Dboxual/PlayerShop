@@ -1,0 +1,19 @@
+## v1.0.26 — 2026-06-10
+
+### What changed
+Added ±$100 price increment/decrement buttons to the pricing GUI. Players setting high-value item prices no longer have to click +$10 ten times. The new buttons occupy slots 9 (−$100) and 17 (+$100) in the pricing row, extending the existing layout symmetrically.
+
+Full pricing row: −$100 | −$10 | −$1 | −$0.10 | [item preview] | +$0.10 | +$1 | +$10 | +$100
+
+### Files edited
+- src/main/java/com/playershop/gui/ShopGUI.java
+  - Added PR_DEC_100 (slot 9) and PR_INC_100 (slot 17) slot constants
+  - Added buttons in renderPricingGUI()
+  - Added case PR_DEC_100 → adjustPrice(-10000) and PR_INC_100 → adjustPrice(+10000) in handlePricingClick()
+- version.properties — bumped 1.0.25 → 1.0.26
+
+### Version
+1.0.26
+
+### Build result
+SUCCESS — build/libs/PlayerShop-1.0.26.jar (56K)

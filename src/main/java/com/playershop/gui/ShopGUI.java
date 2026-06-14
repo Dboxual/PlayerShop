@@ -120,6 +120,7 @@ public class ShopGUI implements Listener {
 
     // Pricing GUI
     private static final int PR_CANCEL        = 45;
+    private static final int PR_DEC_100       = 9;
     private static final int PR_DEC_10        = 10;
     private static final int PR_DEC_1         = 11;
     private static final int PR_DEC_010       = 12;
@@ -127,6 +128,7 @@ public class ShopGUI implements Listener {
     private static final int PR_INC_010       = 14;
     private static final int PR_INC_1         = 15;
     private static final int PR_INC_10        = 16;
+    private static final int PR_INC_100       = 17;
     private static final int PR_PRICE_DISPLAY = 22;
     private static final int PR_CONFIRM       = 53;
 
@@ -248,6 +250,7 @@ public class ShopGUI implements Listener {
     }
 
     private void renderPricingGUI(PricingSession ps) {
+        ps.inventory.setItem(PR_DEC_100,       makePriceButton("-$100",  false));
         ps.inventory.setItem(PR_DEC_10,        makePriceButton("-$10",   false));
         ps.inventory.setItem(PR_DEC_1,         makePriceButton("-$1",    false));
         ps.inventory.setItem(PR_DEC_010,       makePriceButton("-$0.10", false));
@@ -255,6 +258,7 @@ public class ShopGUI implements Listener {
         ps.inventory.setItem(PR_INC_010,       makePriceButton("+$0.10", true));
         ps.inventory.setItem(PR_INC_1,         makePriceButton("+$1",    true));
         ps.inventory.setItem(PR_INC_10,        makePriceButton("+$10",   true));
+        ps.inventory.setItem(PR_INC_100,       makePriceButton("+$100",  true));
         ps.inventory.setItem(PR_PRICE_DISPLAY, makePriceDisplay(ps.priceCents));
         ps.inventory.setItem(PR_CANCEL,        makeCancelButton());
         ps.inventory.setItem(PR_CONFIRM,       makeFinishButton());
@@ -650,12 +654,14 @@ public class ShopGUI implements Listener {
 
     private void handlePricingClick(Player player, PricingSession ps, int slot) {
         switch (slot) {
+            case PR_DEC_100 -> adjustPrice(ps, -10000);
             case PR_DEC_10  -> adjustPrice(ps, -1000);
             case PR_DEC_1   -> adjustPrice(ps, -100);
             case PR_DEC_010 -> adjustPrice(ps, -10);
             case PR_INC_010 -> adjustPrice(ps, 10);
             case PR_INC_1   -> adjustPrice(ps, 100);
             case PR_INC_10  -> adjustPrice(ps, 1000);
+            case PR_INC_100 -> adjustPrice(ps, 10000);
             case PR_CONFIRM -> handlePricingConfirm(player, ps);
             case PR_CANCEL  -> handlePricingCancel(player, ps);
         }
