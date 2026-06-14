@@ -30,4 +30,12 @@ javac.*.args
 # Logs
 *.log
 
+# General build output
+target/
+out/
+cache/
+
+# Claude Code local project settings (machine-specific)
+.claude/
+
 # Note: build/libs/*.jar is intentionally tracked as release artifacts
