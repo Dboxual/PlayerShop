@@ -17,3 +17,10 @@ Full pricing row: −$100 | −$10 | −$1 | −$0.10 | [item preview] | +$0.10 
 
 ### Build result
 SUCCESS — build/libs/PlayerShop-1.0.26.jar (56K)
+
+---
+[2026-06-14] BRANCH CLEANUP
+- Merged: dev → main (fast-forward, 1 commit)
+- Final main commit: 6917ed5046a2a558320ea6b702720478aad3157d
+- Dev deleted: YES (local and remote)
+- Notes: Stale jars removed; PlayerShop-1.0.26.jar is current release.
