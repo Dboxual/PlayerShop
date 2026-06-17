@@ -2,6 +2,7 @@ package com.playershop.listeners;
 
 import com.playershop.PlayerShopPlugin;
 import com.playershop.data.PlayerShop;
+import com.playershop.data.RemovalReason;
 import com.playershop.util.ChestUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -51,6 +52,10 @@ public class ShopInteractListener implements Listener {
             event.setCancelled(true);
             if (shopOpt.isPresent()) {
                 PlayerShop shop = shopOpt.get();
+                if (isGhostShop(shop)) {
+                    plugin.removeShopAt(primary, RemovalReason.GHOST_DETECTED);
+                    return;
+                }
                 if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
                     plugin.getShopGUI().openOwnerGUI(player, shop);
                 } else {
@@ -62,6 +67,10 @@ public class ShopInteractListener implements Listener {
             }
         } else if (shopOpt.isPresent()) {
             PlayerShop shop = shopOpt.get();
+            if (isGhostShop(shop)) {
+                plugin.removeShopAt(primary, RemovalReason.GHOST_DETECTED);
+                return;
+            }
             event.setCancelled(true);
             if (shop.isOwner(player.getUniqueId()) || player.hasPermission("playershop.admin")) {
                 plugin.getShopGUI().openOwnerGUI(player, shop);
@@ -110,6 +119,20 @@ public class ShopInteractListener implements Listener {
             player.sendMessage(Component.text(
                 "Shop created! Use the menu to set it up.", NamedTextColor.GREEN));
         }
+    }
+
+    /**
+     * Returns true if any of the shop's registered chest locations no longer
+     * holds a valid chest block — indicating stale data from a destroyed chest.
+     * The entire shop is treated as a ghost even if only one location is invalid,
+     * because a partially-destroyed shop cannot be used reliably.
+     */
+    private boolean isGhostShop(PlayerShop shop) {
+        for (Location loc : shop.getChests()) {
+            if (loc.getWorld() == null) return true;
+            if (!(loc.getBlock().getBlockData() instanceof Chest)) return true;
+        }
+        return false;
     }
 
     private boolean isAxe(ItemStack item) {

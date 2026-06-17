@@ -2,6 +2,7 @@ package com.playershop.listeners;
 
 import com.playershop.PlayerShopPlugin;
 import com.playershop.data.PlayerShop;
+import com.playershop.data.RemovalReason;
 import com.playershop.util.ChestUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -20,6 +21,7 @@ import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
+import java.util.List;
 import java.util.Optional;
 
 public class ShopProtectListener implements Listener {
@@ -33,8 +35,22 @@ public class ShopProtectListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
-        if (event.getBlockPlaced().getType() != Material.CHEST) return;
         Block placed = event.getBlockPlaced();
+        if (placed.getType() != Material.CHEST) return;
+
+        // Ghost shop detection: if a chest is placed at a location that still has a
+        // stale shop record (the original chest was destroyed), purge the ghost data
+        // so the new chest doesn't inherit the dead shop.
+        Location loc = placed.getLocation();
+        if (plugin.getShopManager().getPlayerShopByChest(loc).isPresent()) {
+            Material previous = event.getBlockReplacedState().getType();
+            if (previous != Material.CHEST) {
+                // Ghost record — original chest is gone, new chest being placed here
+                plugin.removeShopAt(loc, RemovalReason.GHOST_DETECTED);
+            }
+        }
+
+        // Prevent turning a shop chest into a double chest
         for (BlockFace face : HORIZONTAL_FACES) {
             Block neighbor = placed.getRelative(face);
             if (neighbor.getType() != Material.CHEST) continue;
@@ -83,14 +99,41 @@ public class ShopProtectListener implements Listener {
         }
     }
 
-    @EventHandler
+    // HIGH priority so we run after most plugins but still have the final say on
+    // which blocks survive. We collect blocks we tried to protect and schedule a
+    // next-tick fallback to detect any that somehow still got destroyed.
+    @EventHandler(priority = EventPriority.HIGH)
     public void onEntityExplode(EntityExplodeEvent event) {
-        event.blockList().removeIf(this::isShopBlock);
+        List<Block> shopBlocks = event.blockList().stream()
+                .filter(this::isShopBlock)
+                .toList();
+        event.blockList().removeAll(shopBlocks);
+        scheduleIntegrityCheck(shopBlocks);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH)
     public void onBlockExplode(BlockExplodeEvent event) {
-        event.blockList().removeIf(this::isShopBlock);
+        List<Block> shopBlocks = event.blockList().stream()
+                .filter(this::isShopBlock)
+                .toList();
+        event.blockList().removeAll(shopBlocks);
+        scheduleIntegrityCheck(shopBlocks);
+    }
+
+    /**
+     * Schedules a next-tick check for blocks we tried to protect from an explosion.
+     * If any are no longer a chest block despite our protection attempt, the shop is
+     * fully removed so stale data doesn't linger.
+     */
+    private void scheduleIntegrityCheck(List<Block> protectedBlocks) {
+        if (protectedBlocks.isEmpty()) return;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            for (Block b : protectedBlocks) {
+                if (!(b.getBlockData() instanceof Chest)) {
+                    plugin.removeShopAt(b.getLocation(), RemovalReason.EXPLOSION);
+                }
+            }
+        });
     }
 
     @EventHandler

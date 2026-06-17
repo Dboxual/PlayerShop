@@ -1,3 +1,56 @@
+## v1.0.27 — 2026-06-15
+
+### Ghost shop bug — root cause and fix
+
+**Root cause**
+When a shop chest was destroyed by an explosion the explosion event handlers ran at default (NORMAL) priority, removing shop blocks from the blast list. However, a plugin running at a higher priority could re-add those blocks after our handler ran, allowing the chest to be destroyed anyway. More importantly, there was no fallback cleanup path: if the physical block was removed by any means other than the owner's intentional BlockBreakEvent, the in-memory ShopManager entry, the shops.yml record, and the floating hologram all persisted. Any chest block later placed at the exact same coordinates would silently inherit the dead shop's data — the "ghost shop" scenario.
+
+**How explosions are now handled**
+- EntityExplodeEvent and BlockExplodeEvent both run at EventPriority.HIGH, giving us priority over most plugins.
+- Shop blocks are removed from the blast list before the explosion processes them.
+- After removing them, a one-tick delayed task re-checks each protected block. If any block is no longer a chest (meaning another plugin re-added it at HIGHEST and it was destroyed), `removeShopAt` is called immediately to purge the now-stale shop record.
+- BlockBurnEvent and BlockIgniteEvent remain cancelled as before.
+
+**How invalid shop records are cleaned up**
+`removeShopAt(Location, RemovalReason)` is the single entry point for full shop deletion. It:
+  1. Closes any open GUI sessions for that shop (returns items to players, fires InventoryCloseEvent)
+  2. Deletes the hologram armor stands
+  3. Removes the shop from ShopManager (both byOwner map and chestIndex)
+  4. Deletes the entry from shops.yml and saves immediately
+
+On plugin enable and /ps reload, `validateShops()` iterates every loaded shop record and checks whether the registered chest block is still a valid Chest block. Any shop with a missing or wrong-type block is fully removed via `removeShopInternal` before holograms are even created.
+
+At interaction time (`ShopInteractListener`), before opening any GUI, `isGhostShop()` checks that every chest location registered to the shop still holds a chest block. If any location is stale, `removeShopAt` is called and the interaction is silently aborted.
+
+In `ShopProtectListener.onBlockPlace`, when a player places a chest at a coordinate that is still in the chestIndex (but the previous block there was not a chest), the ghost record is purged before the placement proceeds — preventing the new chest from inheriting the old shop.
+
+**New enum**
+`data/RemovalReason` — EXPLOSION, GHOST_DETECTED, STARTUP_VALIDATION, ADMIN — passed to removal methods so the server log shows why a shop was deleted.
+
+### Files changed
+- src/main/java/com/playershop/data/RemovalReason.java (new)
+  - Enum with four removal reasons used in log output
+- src/main/java/com/playershop/PlayerShopPlugin.java
+  - Added removeShopAt(Location, RemovalReason) — public entry point for full shop deletion
+  - Added removeShopInternal(PlayerShop, RemovalReason) — private; called by both removeShopAt and validateShops
+  - Added validateShops() — scans loaded shops, removes ghost records; called in onEnable and reload
+- src/main/java/com/playershop/listeners/ShopProtectListener.java
+  - EntityExplodeEvent and BlockExplodeEvent upgraded to EventPriority.HIGH
+  - Added scheduleIntegrityCheck() — next-tick fallback that calls removeShopAt for any protected block that was destroyed despite being removed from the blast list
+  - onBlockPlace: ghost shop detection — if a new chest is placed at a location that still has a stale shop record, the ghost data is purged before the placement is allowed
+- src/main/java/com/playershop/listeners/ShopInteractListener.java
+  - Added isGhostShop(PlayerShop) helper
+  - onInteract: ghost check runs before opening any GUI; stale shops are removed and the interaction silently exits
+- version.properties — bumped 1.0.26 → 1.0.27
+
+### Version
+1.0.27
+
+### Build result
+SUCCESS — build/libs/PlayerShop-1.0.27.jar (56K)
+
+---
+
 ## v1.0.26 — 2026-06-10
 
 ### What changed
